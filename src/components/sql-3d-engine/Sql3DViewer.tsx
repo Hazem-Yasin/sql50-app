@@ -161,6 +161,12 @@ export function Sql3DViewer({
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [hoveredRowInfo, setHoveredRowInfo] = useState<{
+    tableName: string;
+    values: Record<string, unknown>;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const steps = customSteps || DEMO_STEPS;
   const currentStep = steps[currentStepIdx] || steps[0];
@@ -205,11 +211,54 @@ export function Sql3DViewer({
     sceneManager.worldGroup.add(resultPlatform.group);
     resultPlatformRef.current = resultPlatform;
 
+    // Raycasting for row hover inspection
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current || !sceneManagerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, sceneManagerRef.current.camera);
+
+      // Collect all candidate row meshes
+      const candidateMeshes: { mesh: THREE.Mesh; tableName: string; row: { id: string; values: Record<string, unknown> } }[] = [];
+      tableObjectsRef.current.forEach((tObj) => {
+        tObj.rowMeshes.forEach((mesh, rowId) => {
+          const rowData = tObj.schema.rows.find((r) => r.id === rowId);
+          if (rowData) {
+            candidateMeshes.push({ mesh, tableName: tObj.schema.alias || tObj.schema.name, row: rowData });
+          }
+        });
+      });
+
+      const intersects = raycaster.intersectObjects(candidateMeshes.map((c) => c.mesh));
+      if (intersects.length > 0) {
+        const hit = candidateMeshes.find((c) => c.mesh === intersects[0].object);
+        if (hit) {
+          setHoveredRowInfo({
+            tableName: hit.tableName,
+            values: hit.row.values,
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          });
+          return;
+        }
+      }
+      setHoveredRowInfo(null);
+    };
+
+    const containerEl = containerRef.current;
+    containerEl.addEventListener("mousemove", handleMouseMove);
+
     // Resize handler
     const handleResize = () => sceneManager.resize();
     window.addEventListener("resize", handleResize);
 
     return () => {
+      containerEl.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("resize", handleResize);
       sceneManager.dispose();
       sceneManagerRef.current = null;
@@ -396,13 +445,44 @@ export function Sql3DViewer({
 
         {/* Viewport instruction badge */}
         <div className="sql3d-badge-instructions">
-          Left Drag: Rotate · Right Drag: Pan · Scroll: Zoom
+          Hover: Inspect · Left Drag: Rotate · Right Drag: Pan · Scroll: Zoom
         </div>
 
         {/* Step indicator pill */}
         <div className="sql3d-badge-step">
           Step {currentStepIdx + 1} of {steps.length}
         </div>
+
+        {/* Hover Raycast Tooltip */}
+        {hoveredRowInfo && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${Math.min(hoveredRowInfo.x + 15, 600)}px`,
+              top: `${Math.max(hoveredRowInfo.y - 15, 10)}px`,
+              pointerEvents: "none",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              background: "rgba(15, 23, 42, 0.95)",
+              border: "1px solid #38bdf8",
+              boxShadow: "0 8px 16px rgba(0,0,0,0.5)",
+              color: "#f8fafc",
+              fontSize: "0.8rem",
+              zIndex: 30,
+              minWidth: "160px",
+            }}
+          >
+            <div style={{ fontWeight: 600, color: "#38bdf8", marginBottom: "4px" }}>
+              {hoveredRowInfo.tableName}
+            </div>
+            {Object.entries(hoveredRowInfo.values).map(([k, v]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                <span style={{ color: "#94a3b8" }}>{k}:</span>
+                <span style={{ color: "#f1f5f9", fontWeight: 500 }}>{v === null ? "NULL" : String(v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Narration & SQL Code Box */}

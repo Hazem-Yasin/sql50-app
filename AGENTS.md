@@ -153,6 +153,8 @@ Ideas he may want next (none are started):
 - Commit to `main` with clear messages. Do not force-push or rewrite public
   history without asking (it was done once, to replace the work email on the first two
   commits).
+- Always push to `origin/main` after finishing every requested change or task, so Vercel
+  automatically deploys the latest build.
 - Update this file and `README.md` when the structure, commands or rules above change.
 
 ## 10. Other things on his machine (context only, not part of this repo)

@@ -56,7 +56,7 @@ export default async function ProblemPage({ params }: PageProps) {
       <ul className="pill-list">
         {needed.map((c) => (
           <li key={c.slug}>
-            <Link href={`/concepts#${c.slug}`}>{c.title}</Link>
+            <Link href={`/concepts/${c.slug}`}>{c.title}</Link>
           </li>
         ))}
       </ul>

@@ -8,12 +8,12 @@ it consistent, and what is still open.
 A small, static web app for studying LeetCode's **SQL 50** study plan
 (https://leetcode.com/studyplan/top-sql-50/).
 
-- `/concepts`: 28 SQL concepts (SELECT, joins, self join, GROUP BY, window functions and so on),
-  each with an explanation, example SQL, pitfalls, prerequisites, and links to the LeetCode
-  problems that use it.
-- `/problems` and `/problems/[id]`: the 50 problems, grouped like the study plan, each with a
+- `/concepts`: Catalog index of the 28 SQL concepts, grouped by category.
+- `/concepts/[slug]`: Dedicated page for each SQL concept with interactive 3D visual simulation,
+  in-depth explanation, example SQL, common pitfalls, prerequisites, and problem links.
+- `/problems` and `/problems/[id]`: The 50 problems, grouped like the study plan, each with a
   PostgreSQL solution and the concepts it needs.
-- `/`: home page with stats and links.
+- `/`: Home page with stats and links.
 
 It is meant to be **deployed on Vercel** (no server, no database at runtime, no environment
 variables) and to be worked on for a while.

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Sql3DViewer } from "@/components/sql-3d-engine";
-import { concepts, conceptGroups, getConcept } from "@/data/concepts";
-import { getProblem } from "@/data/problems";
+import { concepts, conceptGroups } from "@/data/concepts";
 import { slugify } from "@/lib/slugify";
 
 export const metadata: Metadata = {
@@ -15,13 +13,13 @@ export default function ConceptsPage() {
     <>
       <h1>SQL concepts for the SQL 50</h1>
       <p className="lead">
-        {concepts.length} concepts, ordered from the basics to the advanced topics. Each one has a
-        plain explanation, a short example, the common mistakes, and the problems from the SQL 50
-        that use it. Read the prerequisites first if a topic feels unclear.
+        Explore {concepts.length} SQL concepts organized from querying basics to advanced techniques.
+        Each topic includes an in-depth explanation, a step-by-step interactive 3D visual simulation,
+        common pitfalls, and the LeetCode SQL 50 problems that use it.
       </p>
 
       <nav className="toc" aria-label="Table of contents">
-        <h3>Contents</h3>
+        <h3>Categories</h3>
         {conceptGroups.map((group) => (
           <ul key={group}>
             <li>
@@ -31,81 +29,35 @@ export default function ConceptsPage() {
               .filter((c) => c.group === group)
               .map((c) => (
                 <li key={c.slug}>
-                  <a href={`#${c.slug}`}>{c.title}</a>
+                  <Link href={`/concepts/${c.slug}`}>{c.title}</Link>
                 </li>
               ))}
           </ul>
         ))}
       </nav>
 
-      {conceptGroups.map((group) => (
-        <section key={group} id={slugify(group)}>
-          <h2>{group}</h2>
-
-          {concepts
-            .filter((c) => c.group === group)
-            .map((c) => (
-              <article key={c.slug} id={c.slug} className="concept">
-                <h3>
-                  {c.title} <span className={`badge ${c.level}`}>{c.level}</span>
-                </h3>
-                <p>
-                  <strong>{c.summary}</strong>
-                </p>
-
-                {c.prerequisites.length > 0 && (
-                  <p className="muted">
-                    Read first:{" "}
-                    {c.prerequisites.map((slug, i) => {
-                      const pre = getConcept(slug);
-                      return (
-                        <span key={slug}>
-                          {i > 0 && ", "}
-                          <a href={`#${slug}`}>{pre?.title ?? slug}</a>
-                        </span>
-                      );
-                    })}
+      {conceptGroups.map((group) => {
+        const groupConcepts = concepts.filter((c) => c.group === group);
+        return (
+          <section key={group} id={slugify(group)}>
+            <h2>{group}</h2>
+            <div className="grid">
+              {groupConcepts.map((c) => (
+                <Link key={c.slug} href={`/concepts/${c.slug}`} className="card">
+                  <h3>
+                    <span className={`badge ${c.level}`}>{c.level}</span>
+                    {c.title}
+                  </h3>
+                  <p>{c.summary}</p>
+                  <p className="muted" style={{ marginTop: "8px", fontSize: "0.85rem" }}>
+                    {c.problems.length} {c.problems.length === 1 ? "problem" : "problems"} · 3D visual available
                   </p>
-                )}
-
-                {c.explanation.map((paragraph, i) => (
-                  <p key={i}>{paragraph}</p>
-                ))}
-
-                <pre>
-                  <code>{c.example.sql}</code>
-                </pre>
-                <p className="muted">{c.example.note}</p>
-
-                {c.slug === "self-join" && (
-                  <Sql3DViewer title="3D Visual Simulation: Self Join (Workers & Managers)" />
-                )}
-
-                <h3>Common mistakes</h3>
-                <ul>
-                  {c.pitfalls.map((pitfall) => (
-                    <li key={pitfall}>{pitfall}</li>
-                  ))}
-                </ul>
-
-                <h3>Used in these problems</h3>
-                <ul className="pill-list">
-                  {c.problems.map((id) => {
-                    const problem = getProblem(id);
-                    if (!problem) return null;
-                    return (
-                      <li key={id}>
-                        <Link href={`/problems/${id}`}>
-                          {id} {problem.title}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </article>
-            ))}
-        </section>
-      ))}
+                </Link>
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </>
   );
 }

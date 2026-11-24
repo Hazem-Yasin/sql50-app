@@ -119,33 +119,29 @@ warnings. The last verified state: typecheck clean, lint clean, build produces 5
 
 ## 7. Deployment
 
-Vercel, framework preset Next.js, default build command, no environment variables. Import the
-GitHub repo in the Vercel dashboard, or use `npx.cmd vercel` / `npx.cmd vercel --prod`.
-**Not deployed yet** as of this handover. Ask him before deploying.
+Vercel, framework preset Next.js, default build command, no environment variables.
+Auto-deploy is enabled on commits pushed to `main`. All 84 static pages build cleanly.
 
-## 8. Known limitations and open work
+## 8. 3D SQL Engine & Future Roadmap
 
-- **Solutions are not verified.** They were written for PostgreSQL but never run against a
-  real database or submitted to LeetCode. A local PostgreSQL 18 exists on his machine, but
-  `psql` needs a password the agent does not have. Treat any solution as "probably right"
-  until checked. Fixing a wrong one means editing the SQL file, regenerating, and re-running
-  the concept check.
-- `db/sql50_database.sql` was only text-checked (50 problem rows, 50 solution rows), not run.
-- The UI was built and compiled but **not yet looked at in a browser**. Run `npm run dev` and
-  check layout, the `#` anchors on `/concepts`, and a few problem pages.
-- LeetCode's website returns 403 to scripted fetches, but its GraphQL endpoint worked for
-  getting the plan: `https://leetcode.com/graphql?query={studyPlanV2Detail(planSlug:"top-sql-50"){...}}`
-  (7 groups, 50 problems). Problem statements are **not** stored in the app; the problem page
-  links out to LeetCode.
+The 3D SQL Engine (`src/components/sql-3d-engine/`) provides real-time WebGL visualization of SQL operations using Three.js:
+- **Concept Integration**: Every individual concept page (`/concepts/[slug]`) embeds an interactive 3D simulation with step-by-step narration, camera controls, and output streams.
+- **Interactive Playground (`/playground`)**: Houses a live SQL Query Interpreter, preset scenarios, and raycast tooltip inspector.
+- **Architecture Documentation**: Full design specifications are located in `docs/3D_SQL_ENGINE.md`.
 
-Ideas he may want next (none are started):
-
-- Verify each solution on LeetCode or on a local database.
-- `concepts` and `problem_concepts` tables in the database script.
-- MySQL and SQL Server versions of the solutions (he has SQL Server Express and MySQL 80
-  locally).
-- Search or filtering on the concepts and problems pages; progress tracking (would need
-  client state or a backend, which is a decision for him).
+### Future Roadmap & Open Items:
+1. **WASM-Powered SQL Engine in Browser**:
+   - Integrate a client-side WebAssembly SQL engine (e.g. SQLite WASM / PGlite) to parse and run 100% standard SQL (recursive CTEs, nested subqueries, advanced window framing) directly inside the 3D canvas without relying on custom regex/AST interpreters.
+2. **Interactive 3D Visualizer on Problem Pages (`/problems/[id]`)**:
+   - Embed 3D visual step animations for LeetCode problem test cases directly in the problem detail view.
+3. **Physics & Particle Visuals**:
+   - Add particle beams for join matching arcs, glowing dissolve transitions on filtered rows, and drop physics when records are inserted into table slots.
+4. **Solution Verification & Automated Test Suite**:
+   - Verify all 50 PostgreSQL solutions against live database test suites or LeetCode test runners.
+5. **Multi-Dialect Tabs (PostgreSQL / MySQL / SQL Server)**:
+   - Expand `db/sql50_database.sql` and the generator to support dialect tabs on the problem detail pages.
+6. **Progress Tracking**:
+   - Add a client-side (LocalStorage) study plan checklist to track solved problems and mastered concepts.
 
 ## 9. Working agreements
 

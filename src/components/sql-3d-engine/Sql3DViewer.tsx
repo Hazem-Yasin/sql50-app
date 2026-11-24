@@ -9,6 +9,7 @@ import {
   createJoinArc,
   TableMeshObject,
   ResultPlatformObject,
+  ArcObject,
 } from "./mesh-generators";
 import { TableSchema, ExecutionStep, ColumnDef } from "./types";
 
@@ -156,7 +157,10 @@ export function Sql3DViewer({
   const sceneManagerRef = useRef<SceneManager | null>(null);
   const tableObjectsRef = useRef<Map<string, TableMeshObject>>(new Map());
   const resultPlatformRef = useRef<ResultPlatformObject | null>(null);
-  const activeArcGroupRef = useRef<THREE.Group | null>(null);
+  const activeArcRef = useRef<ArcObject | null>(null);
+  // Dissolve animations: { mesh, elapsed, duration }
+  type DissolveAnim = { mesh: THREE.Mesh; elapsed: number; duration: number };
+  const dissolveAnims = useRef<DissolveAnim[]>([]);
 
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -175,17 +179,30 @@ export function Sql3DViewer({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    let pulseTime = 0;
+    let elapsedTime = 0;
     const sceneManager = new SceneManager({
       container: containerRef.current,
       onAnimate: (delta) => {
-        pulseTime += delta * 2;
-        // Animate join arc pulse if active
-        if (activeArcGroupRef.current) {
-          const pulseMesh = activeArcGroupRef.current.children[1] as THREE.Mesh | undefined;
-          if (pulseMesh) {
-            pulseMesh.scale.setScalar(1 + Math.sin(pulseTime * 4) * 0.25);
+        elapsedTime += delta;
+        // Animate flowing particles on active join arc
+        if (activeArcRef.current) {
+          activeArcRef.current.update(elapsedTime);
+        }
+        // Advance result-row drop animations
+        if (resultPlatformRef.current) {
+          resultPlatformRef.current.updateAnimations(delta);
+        }
+        // Advance dissolve fade-outs for rejected rows
+        const anims = dissolveAnims.current;
+        for (let i = anims.length - 1; i >= 0; i--) {
+          const a = anims[i];
+          a.elapsed += delta;
+          const t = Math.min(a.elapsed / a.duration, 1);
+          if (a.mesh.material instanceof THREE.MeshStandardMaterial) {
+            a.mesh.material.transparent = true;
+            a.mesh.material.opacity = 1 - t * 0.72; // Fade to 28% opacity
           }
+          if (t >= 1) anims.splice(i, 1);
         }
       },
     });
@@ -273,21 +290,24 @@ export function Sql3DViewer({
       if (!step || !sceneManagerRef.current) return;
 
       // 1. Remove existing arc
-      if (activeArcGroupRef.current) {
-        sceneManagerRef.current.worldGroup.remove(activeArcGroupRef.current);
-        activeArcGroupRef.current = null;
+      if (activeArcRef.current) {
+        sceneManagerRef.current.worldGroup.remove(activeArcRef.current.group);
+        activeArcRef.current = null;
       }
 
-      // 2. Reset all source row highlights
+      // 2. Reset all source row highlights (restore opacity too)
       tableObjectsRef.current.forEach((tableObj) => {
         tableObj.rowMeshes.forEach((mesh) => {
           if (mesh.material instanceof THREE.MeshStandardMaterial) {
             mesh.material.color.setHex(0x0f172a);
             mesh.material.emissive.setHex(0x000000);
+            mesh.material.transparent = false;
+            mesh.material.opacity = 1;
           }
           mesh.position.y = 0.85;
         });
       });
+      dissolveAnims.current.length = 0;
 
       // 3. Highlight active rows
       if (step.activeRowIds && step.activeRowIds.length > 0) {
@@ -295,15 +315,22 @@ export function Sql3DViewer({
           tableObjectsRef.current.forEach((tableObj) => {
             const rowMesh = tableObj.rowMeshes.get(rowId);
             if (rowMesh && rowMesh.material instanceof THREE.MeshStandardMaterial) {
-              rowMesh.material.color.setHex(0x1e3a8a);
-              rowMesh.material.emissive.setHex(0x1d4ed8);
-              rowMesh.position.y = 1.15; // Lift up row
+              if (step.passedCondition === false) {
+                // Trigger dissolve fade-out for failed rows
+                rowMesh.material.color.setHex(0x7f1d1d);
+                rowMesh.material.emissive.setHex(0x991b1b);
+                dissolveAnims.current.push({ mesh: rowMesh, elapsed: 0, duration: 0.65 });
+              } else {
+                rowMesh.material.color.setHex(0x1e3a8a);
+                rowMesh.material.emissive.setHex(0x1d4ed8);
+                rowMesh.position.y = 1.15; // Lift up row
+              }
             }
           });
         });
       }
 
-      // 4. Draw join connection arc if rows matched
+      // 4. Draw join connection arc with particle beam if rows matched
       if (step.matchedRowPair) {
         const [leftId, rightId] = step.matchedRowPair;
         let leftPos: THREE.Vector3 | null = null;
@@ -335,9 +362,9 @@ export function Sql3DViewer({
         });
 
         if (leftPos && rightPos) {
-          const arc = createJoinArc(leftPos, rightPos, 0x10b981);
-          sceneManagerRef.current.worldGroup.add(arc);
-          activeArcGroupRef.current = arc;
+          const arcObj = createJoinArc(leftPos, rightPos, 0x10b981);
+          sceneManagerRef.current.worldGroup.add(arcObj.group);
+          activeArcRef.current = arcObj;
         }
       }
 
@@ -391,6 +418,7 @@ export function Sql3DViewer({
 
   const handleReset = () => {
     setIsPlaying(false);
+    dissolveAnims.current.length = 0;
     setCurrentStepIdx(0);
     sceneManagerRef.current?.resetCamera();
   };

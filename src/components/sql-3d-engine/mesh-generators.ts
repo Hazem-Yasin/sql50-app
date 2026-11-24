@@ -188,9 +188,12 @@ export function createTableMesh(schema: TableSchema): TableMeshObject {
 
 export interface ResultPlatformObject {
   group: THREE.Group;
+  /** Adds a row that drops in from above with bounce-ease physics. */
   addResultRow: (row: TableRow, columns: ColumnDef[], rowIndex: number) => THREE.Mesh;
   clearResults: () => void;
   resultRows: THREE.Mesh[];
+  /** Call each frame to advance drop animations. */
+  updateAnimations: (delta: number) => void;
 }
 
 /**
@@ -268,7 +271,12 @@ export function createResultPlatformMesh(
 
   const resultRows: THREE.Mesh[] = [];
 
+  // Drop animations: { mesh, targetY, elapsed, duration }
+  type DropAnim = { mesh: THREE.Mesh; targetY: number; elapsed: number; duration: number };
+  const dropAnims: DropAnim[] = [];
+
   const addResultRow = (row: TableRow, cols: ColumnDef[], rIdx: number): THREE.Mesh => {
+    const targetY = 0.4 + rowHeight / 2;
     const rowZ = -platformDepth / 2 + 2.0 + rIdx * (rowDepth + 0.3);
     const rowGeo = new THREE.BoxGeometry(platformWidth - 0.6, rowHeight, rowDepth);
     const rowMat = new THREE.MeshStandardMaterial({
@@ -279,7 +287,8 @@ export function createResultPlatformMesh(
     });
 
     const rowMesh = new THREE.Mesh(rowGeo, rowMat);
-    rowMesh.position.set(0, 0.4 + rowHeight / 2, rowZ);
+    // Start well above target — will drop into place
+    rowMesh.position.set(0, targetY + 6, rowZ);
     rowMesh.castShadow = true;
     rowMesh.receiveShadow = true;
     rowMesh.name = `result_row_${row.id}`;
@@ -307,7 +316,31 @@ export function createResultPlatformMesh(
 
     group.add(rowMesh);
     resultRows.push(rowMesh);
+
+    // Register drop animation (bounce-ease, 0.55s)
+    dropAnims.push({ mesh: rowMesh, targetY, elapsed: 0, duration: 0.55 });
+
     return rowMesh;
+  };
+
+  /** Bounce-ease easing: overshoots slightly then settles */
+  function bounceEaseOut(t: number): number {
+    if (t < 1 / 2.75) return 7.5625 * t * t;
+    if (t < 2 / 2.75) { t -= 1.5 / 2.75; return 7.5625 * t * t + 0.75; }
+    if (t < 2.5 / 2.75) { t -= 2.25 / 2.75; return 7.5625 * t * t + 0.9375; }
+    t -= 2.625 / 2.75;
+    return 7.5625 * t * t + 0.984375;
+  }
+
+  const updateAnimations = (delta: number) => {
+    for (let i = dropAnims.length - 1; i >= 0; i--) {
+      const anim = dropAnims[i];
+      anim.elapsed += delta;
+      const t = Math.min(anim.elapsed / anim.duration, 1);
+      const eased = bounceEaseOut(t);
+      anim.mesh.position.y = anim.targetY + 6 * (1 - eased);
+      if (t >= 1) dropAnims.splice(i, 1);
+    }
   };
 
   const clearResults = () => {
@@ -321,47 +354,72 @@ export function createResultPlatformMesh(
       }
     });
     resultRows.length = 0;
+    dropAnims.length = 0;
   };
 
-  return { group, addResultRow, clearResults, resultRows };
+  return { group, addResultRow, clearResults, resultRows, updateAnimations };
+}
+
+export interface ArcObject {
+  group: THREE.Group;
+  /** Call each frame with accumulated time (seconds) to animate particles. */
+  update: (time: number) => void;
 }
 
 /**
- * Creates an animated 3D Bezier Join Arc between two row positions
+ * Creates an animated 3D Bezier Join Arc with flowing particle beam.
+ * Returns an ArcObject whose update(time) must be called each frame.
  */
 export function createJoinArc(
   startPos: THREE.Vector3,
   endPos: THREE.Vector3,
   color = 0x38bdf8
-): THREE.Group {
+): ArcObject {
   const arcGroup = new THREE.Group();
 
   const midPoint = new THREE.Vector3().addVectors(startPos, endPos).multiplyScalar(0.5);
   const distance = startPos.distanceTo(endPos);
-  midPoint.y += Math.max(distance * 0.35, 3.5); // Arc height
+  midPoint.y += Math.max(distance * 0.35, 3.5);
 
   const curve = new THREE.QuadraticBezierCurve3(startPos, midPoint, endPos);
-  const points = curve.getPoints(40);
+  const points = curve.getPoints(60);
   const geo = new THREE.BufferGeometry().setFromPoints(points);
 
-  const mat = new THREE.LineDashedMaterial({
-    color,
-    linewidth: 3,
-    scale: 1,
-    dashSize: 0.6,
-    gapSize: 0.3,
-  });
-
+  // Solid thin base line
+  const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
   const line = new THREE.Line(geo, mat);
-  line.computeLineDistances();
   arcGroup.add(line);
 
-  // Glowing traveling pulse sphere
-  const pulseGeo = new THREE.SphereGeometry(0.25, 16, 16);
-  const pulseMat = new THREE.MeshBasicMaterial({ color: 0x67e8f9 });
-  const pulseMesh = new THREE.Mesh(pulseGeo, pulseMat);
-  pulseMesh.position.copy(startPos);
-  arcGroup.add(pulseMesh);
+  // 5 particles travelling along the curve at staggered offsets
+  const PARTICLE_COUNT = 5;
+  const particles: THREE.Mesh[] = [];
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const pGeo = new THREE.SphereGeometry(0.18, 10, 10);
+    const pMat = new THREE.MeshBasicMaterial({
+      color: 0x67e8f9,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const pMesh = new THREE.Mesh(pGeo, pMat);
+    arcGroup.add(pMesh);
+    particles.push(pMesh);
+  }
 
-  return arcGroup;
+  const tmp = new THREE.Vector3();
+
+  const update = (time: number) => {
+    const SPEED = 0.45; // laps per second
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const offset = i / PARTICLE_COUNT;
+      // t oscillates 0→1, looping
+      const t = ((time * SPEED + offset) % 1 + 1) % 1;
+      curve.getPoint(t, tmp);
+      particles[i].position.copy(tmp);
+      // Fade out at the tail end of each cycle so they don't pop
+      const fade = t < 0.08 ? t / 0.08 : t > 0.92 ? (1 - t) / 0.08 : 1;
+      (particles[i].material as THREE.MeshBasicMaterial).opacity = fade * 0.9;
+    }
+  };
+
+  return { group: arcGroup, update };
 }

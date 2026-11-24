@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { concepts } from "@/data/concepts";
 import { getProblem, leetcodeUrl, problems } from "@/data/problems";
+import { PROBLEM_SCENARIOS } from "@/data/problem-scenarios";
+import { ProblemViewer } from "@/components/ProblemViewer";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -60,6 +62,16 @@ export default async function ProblemPage({ params }: PageProps) {
           </li>
         ))}
       </ul>
+
+      {PROBLEM_SCENARIOS[problem.id] && (
+        <>
+          <h2>3D Execution Visualizer</h2>
+          <p className="muted">
+            Step through how this query executes — tables, joins, filters, and results rendered in real-time 3D.
+          </p>
+          <ProblemViewer scenario={PROBLEM_SCENARIOS[problem.id]} />
+        </>
+      )}
 
       <h2>PostgreSQL solution</h2>
       <p className="muted">

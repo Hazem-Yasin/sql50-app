@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Sql3DViewer } from "@/components/sql-3d-engine";
 import { concepts, conceptGroups, getConcept } from "@/data/concepts";
 import { getProblem } from "@/data/problems";
 import { slugify } from "@/lib/slugify";
@@ -75,6 +76,10 @@ export default function ConceptsPage() {
                   <code>{c.example.sql}</code>
                 </pre>
                 <p className="muted">{c.example.note}</p>
+
+                {c.slug === "self-join" && (
+                  <Sql3DViewer title="3D Visual Simulation: Self Join (Workers & Managers)" />
+                )}
 
                 <h3>Common mistakes</h3>
                 <ul>

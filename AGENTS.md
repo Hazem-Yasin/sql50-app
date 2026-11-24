@@ -48,6 +48,8 @@ scripts/check-concepts.mjs   validates src/data/concepts.ts against the problems
 src/data/problems.json       GENERATED, but committed (the build needs it)
 src/data/problems.ts         typed access: problems, categories, getProblem, leetcodeUrl
 src/data/concepts.ts         hand-written concepts (the content of the concepts page)
+src/components/sql-3d-engine/ 3D SQL visualization engine (Three.js interactive component)
+docs/3D_SQL_ENGINE.md        Architecture and design for the 3D SQL visualization engine
 src/lib/slugify.ts           shared slugify, used for #anchors
 src/app/                     layout, page (home), concepts/, problems/, problems/[id]/
 src/app/globals.css          all styling

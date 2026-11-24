@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const problems = JSON.parse(readFileSync(join(root, "src", "data", "problems.json"), "utf8")).problems;
-const source = readFileSync(join(root, "src", "data", "concepts.ts"), "utf8");
+const source = readFileSync(join(root, "src", "data", "concepts.ts"), "utf8").replace(/\r\n/g, "\n");
 
 // Pull each concept's slug, problems and prerequisites out of the TypeScript source.
 const blocks = source.split(/\n  \{\n    slug: /).slice(1);

@@ -11,6 +11,9 @@ A small, static web app for studying LeetCode's **SQL 50** study plan
 - `/concepts`: Catalog index of the 28 SQL concepts, grouped by category.
 - `/concepts/[slug]`: Dedicated page for each SQL concept with interactive 3D visual simulation,
   in-depth explanation, example SQL, common pitfalls, prerequisites, and problem links.
+- `/playground`: Interactive 3D SQL Sandbox allowing users to switch scenarios (Self Join,
+  Inner Join, Cross Join, Group By & Having, Window/Ranking, Filtering), adjust camera views,
+  and inspect 3D data transformations and output platforms in real time.
 - `/problems` and `/problems/[id]`: The 50 problems, grouped like the study plan, each with a
   PostgreSQL solution and the concepts it needs.
 - `/`: Home page with stats and links.

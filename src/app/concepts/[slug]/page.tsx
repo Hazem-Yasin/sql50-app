@@ -68,6 +68,8 @@ export default async function ConceptDetailPage({ params }: PageProps) {
       <Sql3DViewer
         title={scenario.title}
         customTables={scenario.tables}
+        outputColumns={scenario.outputColumns}
+        outputPosition={scenario.outputPosition}
         customSteps={scenario.steps}
       />
 

@@ -42,6 +42,7 @@ export interface ExecutionStep {
   activeRowIds?: string[];
   matchedRowPair?: [string, string]; // [leftRowId, rightRowId]
   resultRow?: TableRow;
+  resultRowsSnapshot?: TableRow[]; // Snapshot of accumulated result rows up to this step
   passedCondition?: boolean;
 }
 

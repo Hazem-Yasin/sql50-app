@@ -1,8 +1,10 @@
-import { TableSchema, ExecutionStep } from "./types";
+import { TableSchema, ExecutionStep, ColumnDef } from "./types";
 
 export interface ConceptScenario {
   title: string;
   tables: TableSchema[];
+  outputColumns?: ColumnDef[];
+  outputPosition?: [number, number, number];
   steps: ExecutionStep[];
 }
 
@@ -17,7 +19,7 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         name: "Employees",
         alias: "e1 (Worker)",
         color: "#3b82f6",
-        position: [-8, 0, 0],
+        position: [-8, 0, -3],
         columns: [
           { name: "id", type: "INT", isPrimary: true },
           { name: "name", type: "VARCHAR" },
@@ -33,7 +35,7 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         name: "Employees",
         alias: "e2 (Manager)",
         color: "#8b5cf6",
-        position: [8, 0, 0],
+        position: [8, 0, -3],
         columns: [
           { name: "id", type: "INT", isPrimary: true },
           { name: "name", type: "VARCHAR" },
@@ -46,54 +48,71 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         ],
       },
     ],
+    outputColumns: [
+      { name: "employee", type: "VARCHAR" },
+      { name: "manager", type: "VARCHAR" },
+    ],
+    outputPosition: [0, 0, 7],
     steps: [
       {
         id: 0,
         type: "CREATE_TABLE",
-        title: "1. Instantiate Aliases in 3D Space",
+        title: "1. Instantiate Aliases & Output Platform",
         narration:
-          "A Self Join queries the same table twice. We spawn two 3D representations of 'Employees': 'e1' as the worker perspective and 'e2' as the manager perspective.",
+          "A Self Join queries the same table twice. We spawn 'e1' as workers, 'e2' as managers, and a central Result Platform to receive matches.",
         sqlSnippet: "FROM Employees e1 JOIN Employees e2",
+        resultRowsSnapshot: [],
       },
       {
         id: 1,
         type: "SCAN_ROW",
         title: "2. Scan Row 1 (Alice) in e1",
         narration:
-          "Evaluating Alice (id: 1, manager_id: 3). We search e2 for a row where e2.id = 3.",
+          "Evaluating Alice (id: 1, manager_id: 3). We scan e2 for a row with id = 3.",
         activeTable: "e1",
         activeRowIds: ["e1_r1"],
         sqlSnippet: "ON e1.manager_id = e2.id",
+        resultRowsSnapshot: [],
       },
       {
         id: 2,
         type: "JOIN_MATCH",
         title: "3. Match Found: Alice -> Charlie",
         narration:
-          "Match found! Alice's manager_id (3) matches Charlie's id (3) in e2. A 3D relation arc connects the two records.",
+          "Match found! Alice's manager_id (3) matches Charlie's id (3). A 3D relation arc connects them and emits a result row.",
         matchedRowPair: ["e1_r1", "e2_r3"],
         passedCondition: true,
         sqlSnippet: "e1.manager_id (3) = e2.id (3) -> TRUE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+        ],
       },
       {
         id: 3,
         type: "SCAN_ROW",
         title: "4. Scan Row 2 (Bob) in e1",
         narration:
-          "Evaluating Bob (id: 2, manager_id: 3). We search e2 for a row where e2.id = 3.",
+          "Evaluating Bob (id: 2, manager_id: 3). We scan e2 for a row with id = 3.",
         activeTable: "e1",
         activeRowIds: ["e1_r2"],
         sqlSnippet: "ON e1.manager_id = e2.id",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+        ],
       },
       {
         id: 4,
         type: "JOIN_MATCH",
         title: "5. Match Found: Bob -> Charlie",
         narration:
-          "Match found! Bob's manager_id (3) matches Charlie's id (3) in e2. Another join relation is formed.",
+          "Match found! Bob's manager_id (3) matches Charlie's id (3). Second output row is emitted.",
         matchedRowPair: ["e1_r2", "e2_r3"],
         passedCondition: true,
         sqlSnippet: "e1.manager_id (3) = e2.id (3) -> TRUE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+          { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+        ],
       },
       {
         id: 5,
@@ -105,6 +124,10 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         activeRowIds: ["e1_r3"],
         passedCondition: false,
         sqlSnippet: "e1.manager_id (NULL) = e2.id -> FALSE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+          { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+        ],
       },
       {
         id: 6,
@@ -113,6 +136,10 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         narration:
           "Execution complete. The Self Join successfully paired workers with their corresponding managers in 3D.",
         sqlSnippet: "SELECT e1.name AS employee, e2.name AS manager",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+          { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+        ],
       },
     ],
   },
@@ -122,7 +149,7 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
       {
         name: "Orders",
         color: "#3b82f6",
-        position: [-8, 0, 0],
+        position: [-8, 0, -3],
         columns: [
           { name: "order_id", type: "INT", isPrimary: true },
           { name: "customer_id", type: "INT", isForeign: true },
@@ -137,7 +164,7 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
       {
         name: "Customers",
         color: "#10b981",
-        position: [8, 0, 0],
+        position: [8, 0, -3],
         columns: [
           { name: "id", type: "INT", isPrimary: true },
           { name: "name", type: "VARCHAR" },
@@ -149,154 +176,380 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         ],
       },
     ],
+    outputColumns: [
+      { name: "order_id", type: "INT" },
+      { name: "customer", type: "VARCHAR" },
+      { name: "amount", type: "DECIMAL" },
+    ],
+    outputPosition: [0, 0, 7],
     steps: [
       {
         id: 0,
         type: "CREATE_TABLE",
         title: "1. Position Tables in 3D Space",
         narration:
-          "INNER JOIN finds matching records present in both tables based on a shared key.",
+          "INNER JOIN matches records present in both tables based on a shared key.",
         sqlSnippet: "FROM Orders JOIN Customers ON Orders.customer_id = Customers.id",
+        resultRowsSnapshot: [],
       },
       {
         id: 1,
         type: "SCAN_ROW",
         title: "2. Scan Order 101",
         narration:
-          "Checking Order 101 with customer_id: 1 against Customers table.",
+          "Checking Order 101 (customer_id: 1) against Customers.",
         activeTable: "Orders",
         activeRowIds: ["o_1"],
         sqlSnippet: "ON Orders.customer_id (1) = Customers.id",
+        resultRowsSnapshot: [],
       },
       {
         id: 2,
         type: "JOIN_MATCH",
-        title: "3. Match Found: Order 101 <-> Alice",
+        title: "3. Match: Order 101 <-> Alice",
         narration:
-          "Order 101 matches Customer 1 (Alice). Connecting 3D relation established.",
+          "Order 101 matches Customer 1 (Alice). Emitting to Output Platform.",
         matchedRowPair: ["o_1", "c_1"],
         passedCondition: true,
         sqlSnippet: "1 = 1 -> TRUE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { order_id: 101, customer: "Alice", amount: 250 } },
+        ],
       },
       {
         id: 3,
         type: "SCAN_ROW",
         title: "4. Scan Order 102",
         narration:
-          "Checking Order 102 with customer_id: 2 against Customers table.",
+          "Checking Order 102 (customer_id: 2) against Customers.",
         activeTable: "Orders",
         activeRowIds: ["o_2"],
         sqlSnippet: "ON Orders.customer_id (2) = Customers.id",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { order_id: 101, customer: "Alice", amount: 250 } },
+        ],
       },
       {
         id: 4,
         type: "JOIN_MATCH",
-        title: "5. Match Found: Order 102 <-> Bob",
+        title: "5. Match: Order 102 <-> Bob",
         narration:
-          "Order 102 matches Customer 2 (Bob). Connected into result set.",
+          "Order 102 matches Customer 2 (Bob). Emitting to Output Platform.",
         matchedRowPair: ["o_2", "c_2"],
         passedCondition: true,
         sqlSnippet: "2 = 2 -> TRUE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { order_id: 101, customer: "Alice", amount: 250 } },
+          { id: "res_2", values: { order_id: 102, customer: "Bob", amount: 450 } },
+        ],
       },
       {
         id: 5,
         type: "SCAN_ROW",
-        title: "6. Scan Order 103",
+        title: "6. Scan Order 103 (No match)",
         narration:
-          "Checking Order 103 with customer_id: 4 against Customers. No customer with id 4 exists in Customers table.",
+          "Order 103 has customer_id 4. No matching Customer found, so it is omitted from INNER JOIN.",
         activeTable: "Orders",
         activeRowIds: ["o_3"],
         passedCondition: false,
-        sqlSnippet: "4 = Customers.id -> FALSE (Excluded from INNER JOIN)",
+        sqlSnippet: "4 = Customers.id -> FALSE",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { order_id: 101, customer: "Alice", amount: 250 } },
+          { id: "res_2", values: { order_id: 102, customer: "Bob", amount: 450 } },
+        ],
       },
       {
         id: 6,
         type: "COMPLETE",
         title: "7. Result Set Complete",
         narration:
-          "INNER JOIN returned all 2 matching pairs. Non-matching order 103 and unmatched customer Carol are excluded.",
+          "INNER JOIN finished with 2 matching records on the Output Platform.",
         sqlSnippet: "SELECT order_id, name, amount",
+        resultRowsSnapshot: [
+          { id: "res_1", values: { order_id: 101, customer: "Alice", amount: 250 } },
+          { id: "res_2", values: { order_id: 102, customer: "Bob", amount: 450 } },
+        ],
       },
     ],
   },
-  "left-join": {
-    title: "3D Visual Simulation: LEFT JOIN",
+  "cross-join": {
+    title: "3D Visual Simulation: CROSS JOIN (Cartesian Product)",
     tables: [
       {
-        name: "Students",
-        color: "#3b82f6",
-        position: [-8, 0, 0],
-        columns: [
-          { name: "id", type: "INT", isPrimary: true },
-          { name: "name", type: "VARCHAR" },
-        ],
+        name: "Sizes",
+        color: "#f59e0b",
+        position: [-8, 0, -3],
+        columns: [{ name: "size", type: "VARCHAR" }],
         rows: [
-          { id: "s_1", values: { id: 1, name: "Alice" } },
-          { id: "s_2", values: { id: 2, name: "Bob" } },
-          { id: "s_3", values: { id: 3, name: "Charlie" } },
+          { id: "s_1", values: { size: "Small" } },
+          { id: "s_2", values: { size: "Large" } },
         ],
       },
       {
-        name: "ExamScores",
-        color: "#f59e0b",
-        position: [8, 0, 0],
-        columns: [
-          { name: "student_id", type: "INT", isForeign: true },
-          { name: "score", type: "INT" },
-        ],
+        name: "Colors",
+        color: "#ec4899",
+        position: [8, 0, -3],
+        columns: [{ name: "color", type: "VARCHAR" }],
         rows: [
-          { id: "ex_1", values: { student_id: 1, score: 95 } },
-          { id: "ex_2", values: { student_id: 2, score: 88 } },
+          { id: "c_1", values: { color: "Red" } },
+          { id: "c_2", values: { color: "Blue" } },
         ],
       },
     ],
+    outputColumns: [
+      { name: "size", type: "VARCHAR" },
+      { name: "color", type: "VARCHAR" },
+    ],
+    outputPosition: [0, 0, 7],
     steps: [
       {
         id: 0,
         type: "CREATE_TABLE",
-        title: "1. Position Left & Right Tables",
+        title: "1. Cross Join Initial Setup",
         narration:
-          "LEFT JOIN preserves EVERY row from the Left table (Students), even if no match exists in the Right table (ExamScores).",
-        sqlSnippet: "FROM Students LEFT JOIN ExamScores ON Students.id = ExamScores.student_id",
+          "CROSS JOIN produces a Cartesian product where every row of table 1 pairs with every row of table 2 (2 × 2 = 4 combinations).",
+        sqlSnippet: "FROM Sizes CROSS JOIN Colors",
+        resultRowsSnapshot: [],
       },
       {
         id: 1,
         type: "JOIN_MATCH",
-        title: "2. Match Student 1 (Alice)",
-        narration:
-          "Alice has an exam score of 95. Matched and connected.",
-        matchedRowPair: ["s_1", "ex_1"],
-        passedCondition: true,
-        sqlSnippet: "Students.id (1) = ExamScores.student_id (1) -> TRUE",
+        title: "2. Pair Small with Red",
+        narration: "Pairing (Small, Red) into the output matrix.",
+        matchedRowPair: ["s_1", "c_1"],
+        resultRowsSnapshot: [
+          { id: "r_1", values: { size: "Small", color: "Red" } },
+        ],
       },
       {
         id: 2,
         type: "JOIN_MATCH",
-        title: "3. Match Student 2 (Bob)",
+        title: "3. Pair Small with Blue",
+        narration: "Pairing (Small, Blue) into the output matrix.",
+        matchedRowPair: ["s_1", "c_2"],
+        resultRowsSnapshot: [
+          { id: "r_1", values: { size: "Small", color: "Red" } },
+          { id: "r_2", values: { size: "Small", color: "Blue" } },
+        ],
+      },
+      {
+        id: 3,
+        type: "JOIN_MATCH",
+        title: "4. Pair Large with Red",
+        narration: "Pairing (Large, Red) into the output matrix.",
+        matchedRowPair: ["s_2", "c_1"],
+        resultRowsSnapshot: [
+          { id: "r_1", values: { size: "Small", color: "Red" } },
+          { id: "r_2", values: { size: "Small", color: "Blue" } },
+          { id: "r_3", values: { size: "Large", color: "Red" } },
+        ],
+      },
+      {
+        id: 4,
+        type: "JOIN_MATCH",
+        title: "5. Pair Large with Blue",
+        narration: "Pairing (Large, Blue) into the output matrix.",
+        matchedRowPair: ["s_2", "c_2"],
+        resultRowsSnapshot: [
+          { id: "r_1", values: { size: "Small", color: "Red" } },
+          { id: "r_2", values: { size: "Small", color: "Blue" } },
+          { id: "r_3", values: { size: "Large", color: "Red" } },
+          { id: "r_4", values: { size: "Large", color: "Blue" } },
+        ],
+      },
+      {
+        id: 5,
+        type: "COMPLETE",
+        title: "6. Cartesian Grid Complete",
+        narration: "All 4 combinations have materialized on the Output Platform.",
+        sqlSnippet: "SELECT size, color FROM Sizes CROSS JOIN Colors",
+        resultRowsSnapshot: [
+          { id: "r_1", values: { size: "Small", color: "Red" } },
+          { id: "r_2", values: { size: "Small", color: "Blue" } },
+          { id: "r_3", values: { size: "Large", color: "Red" } },
+          { id: "r_4", values: { size: "Large", color: "Blue" } },
+        ],
+      },
+    ],
+  },
+  "group-by-having": {
+    title: "3D Visual Simulation: GROUP BY & HAVING",
+    tables: [
+      {
+        name: "Sales",
+        color: "#6366f1",
+        position: [0, 0, -3],
+        columns: [
+          { name: "id", type: "INT" },
+          { name: "department", type: "VARCHAR" },
+          { name: "revenue", type: "DECIMAL" },
+        ],
+        rows: [
+          { id: "s1", values: { id: 1, department: "Electronics", revenue: 500 } },
+          { id: "s2", values: { id: 2, department: "Clothing", revenue: 150 } },
+          { id: "s3", values: { id: 3, department: "Electronics", revenue: 700 } },
+          { id: "s4", values: { id: 4, department: "Clothing", revenue: 200 } },
+        ],
+      },
+    ],
+    outputColumns: [
+      { name: "department", type: "VARCHAR" },
+      { name: "total_revenue", type: "DECIMAL" },
+    ],
+    outputPosition: [0, 0, 7],
+    steps: [
+      {
+        id: 0,
+        type: "CREATE_TABLE",
+        title: "1. Raw Sales Data",
         narration:
-          "Bob has an exam score of 88. Matched and connected.",
-        matchedRowPair: ["s_2", "ex_2"],
+          "GROUP BY aggregates individual rows with matching department keys into summary buckets, then HAVING filters those buckets.",
+        sqlSnippet: "GROUP BY department HAVING SUM(revenue) > 500",
+        resultRowsSnapshot: [],
+      },
+      {
+        id: 1,
+        type: "GROUP_ROW",
+        title: "2. Form Group: Electronics",
+        narration:
+          "Row 1 ($500) and Row 3 ($700) share department 'Electronics'. SUM(revenue) = $1200.",
+        activeRowIds: ["s1", "s3"],
+        sqlSnippet: "SUM(revenue) for Electronics = 1200",
+        resultRowsSnapshot: [],
+      },
+      {
+        id: 2,
+        type: "EVALUATE_PREDICATE",
+        title: "3. Evaluate HAVING: Electronics ($1200 > 500)",
+        narration:
+          "1200 > 500 is TRUE. Electronics qualifies and emits to the Output Platform.",
         passedCondition: true,
-        sqlSnippet: "Students.id (2) = ExamScores.student_id (2) -> TRUE",
+        sqlSnippet: "HAVING 1200 > 500 -> TRUE",
+        resultRowsSnapshot: [
+          { id: "grp_1", values: { department: "Electronics", total_revenue: 1200 } },
+        ],
+      },
+      {
+        id: 3,
+        type: "GROUP_ROW",
+        title: "4. Form Group: Clothing",
+        narration:
+          "Row 2 ($150) and Row 4 ($200) share department 'Clothing'. SUM(revenue) = $350.",
+        activeRowIds: ["s2", "s4"],
+        sqlSnippet: "SUM(revenue) for Clothing = 350",
+        resultRowsSnapshot: [
+          { id: "grp_1", values: { department: "Electronics", total_revenue: 1200 } },
+        ],
+      },
+      {
+        id: 4,
+        type: "EVALUATE_PREDICATE",
+        title: "5. Evaluate HAVING: Clothing ($350 > 500)",
+        narration:
+          "350 > 500 is FALSE. Clothing fails the HAVING predicate and is discarded.",
+        passedCondition: false,
+        sqlSnippet: "HAVING 350 > 500 -> FALSE",
+        resultRowsSnapshot: [
+          { id: "grp_1", values: { department: "Electronics", total_revenue: 1200 } },
+        ],
+      },
+      {
+        id: 5,
+        type: "COMPLETE",
+        title: "6. Group By & Having Complete",
+        narration:
+          "Only qualifying groups survive to the final output.",
+        sqlSnippet: "SELECT department, SUM(revenue) FROM Sales GROUP BY department HAVING SUM(revenue) > 500",
+        resultRowsSnapshot: [
+          { id: "grp_1", values: { department: "Electronics", total_revenue: 1200 } },
+        ],
+      },
+    ],
+  },
+  "ranking-functions": {
+    title: "3D Visual Simulation: Window & Ranking Functions (DENSE_RANK)",
+    tables: [
+      {
+        name: "Salaries",
+        color: "#8b5cf6",
+        position: [0, 0, -3],
+        columns: [
+          { name: "employee", type: "VARCHAR" },
+          { name: "salary", type: "INT" },
+        ],
+        rows: [
+          { id: "sal_1", values: { employee: "Alice", salary: 9000 } },
+          { id: "sal_2", values: { employee: "Bob", salary: 8000 } },
+          { id: "sal_3", values: { employee: "Charlie", salary: 8000 } },
+          { id: "sal_4", values: { employee: "Diana", salary: 6000 } },
+        ],
+      },
+    ],
+    outputColumns: [
+      { name: "employee", type: "VARCHAR" },
+      { name: "salary", type: "INT" },
+      { name: "dense_rank", type: "INT" },
+    ],
+    outputPosition: [0, 0, 7],
+    steps: [
+      {
+        id: 0,
+        type: "CREATE_TABLE",
+        title: "1. Order Dataset for Window Ranking",
+        narration:
+          "DENSE_RANK() assigns consecutive rank numbers without gaps when ties occur.",
+        sqlSnippet: "DENSE_RANK() OVER (ORDER BY salary DESC)",
+        resultRowsSnapshot: [],
+      },
+      {
+        id: 1,
+        type: "SCAN_ROW",
+        title: "2. Rank 1: Alice ($9000)",
+        narration: "Highest salary receives Rank 1.",
+        activeRowIds: ["sal_1"],
+        resultRowsSnapshot: [
+          { id: "rnk_1", values: { employee: "Alice", salary: 9000, dense_rank: 1 } },
+        ],
+      },
+      {
+        id: 2,
+        type: "SCAN_ROW",
+        title: "3. Rank 2: Bob ($8000) & Charlie ($8000)",
+        narration:
+          "Bob and Charlie tie at $8000. Both receive Rank 2.",
+        activeRowIds: ["sal_2", "sal_3"],
+        resultRowsSnapshot: [
+          { id: "rnk_1", values: { employee: "Alice", salary: 9000, dense_rank: 1 } },
+          { id: "rnk_2", values: { employee: "Bob", salary: 8000, dense_rank: 2 } },
+          { id: "rnk_3", values: { employee: "Charlie", salary: 8000, dense_rank: 2 } },
+        ],
       },
       {
         id: 3,
         type: "SCAN_ROW",
-        title: "4. Preserve Student 3 (Charlie) with NULL",
+        title: "4. Rank 3: Diana ($6000) - No Gap!",
         narration:
-          "Charlie has no exam score entry. In a LEFT JOIN, Charlie is preserved and score is filled with NULL.",
-        activeTable: "Students",
-        activeRowIds: ["s_3"],
-        passedCondition: false,
-        sqlSnippet: "Charlie -> ExamScores.score = NULL",
+          "With DENSE_RANK, the next distinct salary receives Rank 3 (unlike RANK() which would skip to 4).",
+        activeRowIds: ["sal_4"],
+        resultRowsSnapshot: [
+          { id: "rnk_1", values: { employee: "Alice", salary: 9000, dense_rank: 1 } },
+          { id: "rnk_2", values: { employee: "Bob", salary: 8000, dense_rank: 2 } },
+          { id: "rnk_3", values: { employee: "Charlie", salary: 8000, dense_rank: 2 } },
+          { id: "rnk_4", values: { employee: "Diana", salary: 6000, dense_rank: 3 } },
+        ],
       },
       {
         id: 4,
         type: "COMPLETE",
-        title: "5. LEFT JOIN Result",
-        narration:
-          "All 3 students are included in the output. Charlie retains his record with score = NULL.",
-        sqlSnippet: "SELECT name, COALESCE(score, 0)",
+        title: "5. Ranking Window Output",
+        narration: "All rows computed with consecutive dense ranking.",
+        sqlSnippet: "SELECT employee, salary, DENSE_RANK() OVER (ORDER BY salary DESC) AS rank",
+        resultRowsSnapshot: [
+          { id: "rnk_1", values: { employee: "Alice", salary: 9000, dense_rank: 1 } },
+          { id: "rnk_2", values: { employee: "Bob", salary: 8000, dense_rank: 2 } },
+          { id: "rnk_3", values: { employee: "Charlie", salary: 8000, dense_rank: 2 } },
+          { id: "rnk_4", values: { employee: "Diana", salary: 6000, dense_rank: 3 } },
+        ],
       },
     ],
   },
@@ -306,7 +559,7 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
       {
         name: "Products",
         color: "#06b6d4",
-        position: [0, 0, 0],
+        position: [0, 0, -3],
         columns: [
           { name: "id", type: "INT", isPrimary: true },
           { name: "product_name", type: "VARCHAR" },
@@ -321,6 +574,11 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         ],
       },
     ],
+    outputColumns: [
+      { name: "product", type: "VARCHAR" },
+      { name: "price", type: "DECIMAL" },
+    ],
+    outputPosition: [0, 0, 7],
     steps: [
       {
         id: 0,
@@ -328,17 +586,21 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         title: "1. Initial Dataset",
         narration:
           "The WHERE clause scans rows one-by-one and tests boolean conditions.",
-        sqlSnippet: "SELECT * FROM Products WHERE price > 50 AND in_stock = true",
+        sqlSnippet: "SELECT product_name, price FROM Products WHERE price > 50 AND in_stock = true",
+        resultRowsSnapshot: [],
       },
       {
         id: 1,
         type: "SCAN_ROW",
         title: "2. Test Row 1: Laptop ($1200)",
         narration:
-          "price: 1200 (> 50) AND in_stock: true -> TRUE. Row qualifies and lifts with highlight.",
+          "price: 1200 (> 50) AND in_stock: true -> TRUE. Row qualifies and emits to Output Platform.",
         activeRowIds: ["p_1"],
         passedCondition: true,
         sqlSnippet: "1200 > 50 AND true = true -> TRUE",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { product: "Laptop", price: 1200 } },
+        ],
       },
       {
         id: 2,
@@ -349,6 +611,9 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         activeRowIds: ["p_2"],
         passedCondition: false,
         sqlSnippet: "25 > 50 -> FALSE",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { product: "Laptop", price: 1200 } },
+        ],
       },
       {
         id: 3,
@@ -359,16 +624,23 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         activeRowIds: ["p_3"],
         passedCondition: false,
         sqlSnippet: "300 > 50 AND false = true -> FALSE",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { product: "Laptop", price: 1200 } },
+        ],
       },
       {
         id: 4,
         type: "SCAN_ROW",
         title: "5. Test Row 4: Keyboard ($80)",
         narration:
-          "price: 80 (> 50) AND in_stock: true -> TRUE. Row qualifies.",
+          "price: 80 (> 50) AND in_stock: true -> TRUE. Row qualifies and emits to Output Platform.",
         activeRowIds: ["p_4"],
         passedCondition: true,
         sqlSnippet: "80 > 50 AND true = true -> TRUE",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { product: "Laptop", price: 1200 } },
+          { id: "out_2", values: { product: "Keyboard", price: 80 } },
+        ],
       },
       {
         id: 5,
@@ -377,6 +649,10 @@ export const CONCEPT_SCENARIOS: Record<string, ConceptScenario> = {
         narration:
           "Filter evaluation complete: Laptop and Keyboard are emitted into the result stream.",
         sqlSnippet: "Result: 2 rows returned",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { product: "Laptop", price: 1200 } },
+          { id: "out_2", values: { product: "Keyboard", price: 80 } },
+        ],
       },
     ],
   },
@@ -397,7 +673,7 @@ export function getConceptScenario(slug: string, conceptTitle: string): ConceptS
       {
         name: "SourceTable",
         color: "#6366f1",
-        position: [0, 0, 0],
+        position: [0, 0, -3],
         columns: [
           { name: "id", type: "INT", isPrimary: true },
           { name: "attribute", type: "VARCHAR" },
@@ -410,6 +686,11 @@ export function getConceptScenario(slug: string, conceptTitle: string): ConceptS
         ],
       },
     ],
+    outputColumns: [
+      { name: "attribute", type: "VARCHAR" },
+      { name: "metric", type: "DECIMAL" },
+    ],
+    outputPosition: [0, 0, 7],
     steps: [
       {
         id: 0,
@@ -417,6 +698,7 @@ export function getConceptScenario(slug: string, conceptTitle: string): ConceptS
         title: `1. Explore ${conceptTitle} in 3D Space`,
         narration: `Interactive 3D spatial viewport demonstrating relational dynamics for ${conceptTitle}.`,
         sqlSnippet: `SELECT * FROM SourceTable`,
+        resultRowsSnapshot: [],
       },
       {
         id: 1,
@@ -425,6 +707,9 @@ export function getConceptScenario(slug: string, conceptTitle: string): ConceptS
         narration: "The engine scans data blocks to evaluate query operations.",
         activeRowIds: ["r1", "r2"],
         sqlSnippet: "EVALUATING ROWS",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { attribute: "Alpha", metric: 100 } },
+        ],
       },
       {
         id: 2,
@@ -432,6 +717,10 @@ export function getConceptScenario(slug: string, conceptTitle: string): ConceptS
         title: "3. Execution Complete",
         narration: `Query evaluation complete for ${conceptTitle}.`,
         sqlSnippet: "DONE",
+        resultRowsSnapshot: [
+          { id: "out_1", values: { attribute: "Alpha", metric: 100 } },
+          { id: "out_2", values: { attribute: "Beta", metric: 250 } },
+        ],
       },
     ],
   };

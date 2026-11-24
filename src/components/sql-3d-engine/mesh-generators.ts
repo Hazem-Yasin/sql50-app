@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { TableSchema } from "./types";
+import { TableSchema, TableRow, ColumnDef } from "./types";
 
 /**
  * Creates a high-res text sprite or canvas texture for labels in 3D
@@ -184,6 +184,146 @@ export function createTableMesh(schema: TableSchema): TableMeshObject {
   });
 
   return { group, rowMeshes, schema };
+}
+
+export interface ResultPlatformObject {
+  group: THREE.Group;
+  addResultRow: (row: TableRow, columns: ColumnDef[], rowIndex: number) => THREE.Mesh;
+  clearResults: () => void;
+  resultRows: THREE.Mesh[];
+}
+
+/**
+ * Creates an elevated Output / Result Set Platform for materialized queries
+ */
+export function createResultPlatformMesh(
+  columns: ColumnDef[],
+  position: [number, number, number] = [0, 0, 9]
+): ResultPlatformObject {
+  const group = new THREE.Group();
+  const [posX, posY, posZ] = position;
+  group.position.set(posX, posY, posZ);
+
+  const numCols = Math.max(columns.length, 2);
+  const colWidth = 3.2;
+  const maxRows = 4;
+  const rowHeight = 0.9;
+  const rowDepth = 1.6;
+  const platformWidth = numCols * colWidth + 0.8;
+  const platformDepth = maxRows * (rowDepth + 0.3) + 1.4;
+
+  // Platform Base
+  const baseGeo = new THREE.BoxGeometry(platformWidth, 0.4, platformDepth);
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: 0x064e3b, // Deep emerald surface
+    roughness: 0.3,
+    metalness: 0.7,
+  });
+  const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+  baseMesh.position.y = 0.2;
+  baseMesh.castShadow = true;
+  baseMesh.receiveShadow = true;
+  group.add(baseMesh);
+
+  // Emerald glowing wireframe edge
+  const edgeGeo = new THREE.EdgesGeometry(baseGeo);
+  const edgeMat = new THREE.LineBasicMaterial({
+    color: 0x10b981,
+    linewidth: 2,
+  });
+  const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
+  edgeLines.position.copy(baseMesh.position);
+  group.add(edgeLines);
+
+  // Platform Header Billboard
+  const titleTexture = createTextTexture("Result Output Stream", {
+    fontSize: 28,
+    fontColor: "#a7f3d0",
+    bgColor: "rgba(6, 78, 59, 0.95)",
+    borderColor: "#10b981",
+    width: 300,
+    height: 64,
+  });
+  const titleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: titleTexture, transparent: true }));
+  titleSprite.scale.set(4.2, 0.95, 1);
+  titleSprite.position.set(0, 3.2, -platformDepth / 2 - 0.7);
+  group.add(titleSprite);
+
+  // Column Headers
+  columns.forEach((col, cIdx) => {
+    const colX = -platformWidth / 2 + 0.6 + cIdx * colWidth + colWidth / 2;
+    const headerTexture = createTextTexture(col.name, {
+      fontSize: 22,
+      fontColor: "#6ee7b7",
+      bgColor: "rgba(6, 78, 59, 0.9)",
+      borderColor: "#059669",
+      width: 200,
+      height: 52,
+    });
+    const headerSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: headerTexture, transparent: true }));
+    headerSprite.scale.set(colWidth * 0.85, 0.6, 1);
+    headerSprite.position.set(colX, 0.9, -platformDepth / 2 + 0.8);
+    group.add(headerSprite);
+  });
+
+  const resultRows: THREE.Mesh[] = [];
+
+  const addResultRow = (row: TableRow, cols: ColumnDef[], rIdx: number): THREE.Mesh => {
+    const rowZ = -platformDepth / 2 + 2.0 + rIdx * (rowDepth + 0.3);
+    const rowGeo = new THREE.BoxGeometry(platformWidth - 0.6, rowHeight, rowDepth);
+    const rowMat = new THREE.MeshStandardMaterial({
+      color: 0x065f46,
+      emissive: 0x047857,
+      roughness: 0.3,
+      metalness: 0.6,
+    });
+
+    const rowMesh = new THREE.Mesh(rowGeo, rowMat);
+    rowMesh.position.set(0, 0.4 + rowHeight / 2, rowZ);
+    rowMesh.castShadow = true;
+    rowMesh.receiveShadow = true;
+    rowMesh.name = `result_row_${row.id}`;
+
+    // Add cell labels
+    cols.forEach((col, cIdx) => {
+      const colX = -platformWidth / 2 + 0.6 + cIdx * colWidth + colWidth / 2;
+      const cellVal = row.values[col.name];
+      const valText = cellVal === null ? "NULL" : String(cellVal);
+
+      const cellTexture = createTextTexture(valText, {
+        fontSize: 22,
+        fontColor: "#ecfdf5",
+        bgColor: "rgba(6, 78, 59, 0.85)",
+        borderColor: "#10b981",
+        width: 190,
+        height: 48,
+      });
+
+      const cellSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cellTexture, transparent: true }));
+      cellSprite.scale.set(colWidth * 0.82, 0.52, 1);
+      cellSprite.position.set(colX, 0.15, 0);
+      rowMesh.add(cellSprite);
+    });
+
+    group.add(rowMesh);
+    resultRows.push(rowMesh);
+    return rowMesh;
+  };
+
+  const clearResults = () => {
+    resultRows.forEach((rMesh) => {
+      group.remove(rMesh);
+      rMesh.geometry.dispose();
+      if (Array.isArray(rMesh.material)) {
+        rMesh.material.forEach((m) => m.dispose());
+      } else {
+        rMesh.material.dispose();
+      }
+    });
+    resultRows.length = 0;
+  };
+
+  return { group, addResultRow, clearResults, resultRows };
 }
 
 /**

@@ -3,15 +3,21 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { SceneManager } from "./SceneManager";
-import { createTableMesh, createJoinArc, TableMeshObject } from "./mesh-generators";
-import { TableSchema, ExecutionStep } from "./types";
+import {
+  createTableMesh,
+  createResultPlatformMesh,
+  createJoinArc,
+  TableMeshObject,
+  ResultPlatformObject,
+} from "./mesh-generators";
+import { TableSchema, ExecutionStep, ColumnDef } from "./types";
 
 // Pre-configured Self-Join Scenario data for interactive demonstration
 const DEMO_EMPLOYEES_TABLE: TableSchema = {
   name: "Employees",
   alias: "e1 (Worker)",
   color: "#3b82f6",
-  position: [-8, 0, 0],
+  position: [-8, 0, -3],
   columns: [
     { name: "id", type: "INT", isPrimary: true },
     { name: "name", type: "VARCHAR" },
@@ -28,7 +34,7 @@ const DEMO_MANAGERS_TABLE: TableSchema = {
   name: "Employees",
   alias: "e2 (Manager)",
   color: "#8b5cf6",
-  position: [8, 0, 0],
+  position: [8, 0, -3],
   columns: [
     { name: "id", type: "INT", isPrimary: true },
     { name: "name", type: "VARCHAR" },
@@ -49,6 +55,7 @@ const DEMO_STEPS: ExecutionStep[] = [
     narration:
       "A Self Join queries the same table twice. We spawn two 3D representations of 'Employees': 'e1' as the worker perspective and 'e2' as the manager perspective.",
     sqlSnippet: "FROM Employees e1 JOIN Employees e2",
+    resultRowsSnapshot: [],
   },
   {
     id: 1,
@@ -59,16 +66,20 @@ const DEMO_STEPS: ExecutionStep[] = [
     activeTable: "e1",
     activeRowIds: ["e1_r1"],
     sqlSnippet: "ON e1.manager_id = e2.id",
+    resultRowsSnapshot: [],
   },
   {
     id: 2,
     type: "JOIN_MATCH",
     title: "3. Match Found: Alice -> Charlie",
     narration:
-      "Match found! Alice's manager_id (3) matches Charlie's id (3) in e2. A 3D relation arc connects the two records.",
+      "Match found! Alice's manager_id (3) matches Charlie's id (3) in e2. A 3D relation arc connects the two records and emits a result row.",
     matchedRowPair: ["e1_r1", "e2_r3"],
     passedCondition: true,
     sqlSnippet: "e1.manager_id (3) = e2.id (3) -> TRUE",
+    resultRowsSnapshot: [
+      { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+    ],
   },
   {
     id: 3,
@@ -79,6 +90,9 @@ const DEMO_STEPS: ExecutionStep[] = [
     activeTable: "e1",
     activeRowIds: ["e1_r2"],
     sqlSnippet: "ON e1.manager_id = e2.id",
+    resultRowsSnapshot: [
+      { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+    ],
   },
   {
     id: 4,
@@ -89,6 +103,10 @@ const DEMO_STEPS: ExecutionStep[] = [
     matchedRowPair: ["e1_r2", "e2_r3"],
     passedCondition: true,
     sqlSnippet: "e1.manager_id (3) = e2.id (3) -> TRUE",
+    resultRowsSnapshot: [
+      { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+      { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+    ],
   },
   {
     id: 5,
@@ -100,6 +118,10 @@ const DEMO_STEPS: ExecutionStep[] = [
     activeRowIds: ["e1_r3"],
     passedCondition: false,
     sqlSnippet: "e1.manager_id (NULL) = e2.id -> FALSE",
+    resultRowsSnapshot: [
+      { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+      { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+    ],
   },
   {
     id: 6,
@@ -108,23 +130,32 @@ const DEMO_STEPS: ExecutionStep[] = [
     narration:
       "Execution complete. The Self Join successfully paired workers with their corresponding managers in 3D.",
     sqlSnippet: "SELECT e1.name AS employee, e2.name AS manager",
+    resultRowsSnapshot: [
+      { id: "res_1", values: { employee: "Alice", manager: "Charlie" } },
+      { id: "res_2", values: { employee: "Bob", manager: "Charlie" } },
+    ],
   },
 ];
 
 export interface Sql3DViewerProps {
   customTables?: TableSchema[];
+  outputColumns?: ColumnDef[];
+  outputPosition?: [number, number, number];
   customSteps?: ExecutionStep[];
   title?: string;
 }
 
 export function Sql3DViewer({
   customTables,
+  outputColumns,
+  outputPosition,
   customSteps,
   title = "3D Interactive SQL Execution Engine",
 }: Sql3DViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneManagerRef = useRef<SceneManager | null>(null);
   const tableObjectsRef = useRef<Map<string, TableMeshObject>>(new Map());
+  const resultPlatformRef = useRef<ResultPlatformObject | null>(null);
   const activeArcGroupRef = useRef<THREE.Group | null>(null);
 
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
@@ -164,6 +195,16 @@ export function Sql3DViewer({
       tableObjectsRef.current.set(tableSchema.alias || tableSchema.name, tableObj);
     });
 
+    // Load Output Platform if output columns are defined
+    const outCols = outputColumns || [
+      { name: "employee", type: "VARCHAR" },
+      { name: "manager", type: "VARCHAR" },
+    ];
+    const outPos = outputPosition || [0, 0, 7];
+    const resultPlatform = createResultPlatformMesh(outCols, outPos);
+    sceneManager.worldGroup.add(resultPlatform.group);
+    resultPlatformRef.current = resultPlatform;
+
     // Resize handler
     const handleResize = () => sceneManager.resize();
     window.addEventListener("resize", handleResize);
@@ -172,8 +213,9 @@ export function Sql3DViewer({
       window.removeEventListener("resize", handleResize);
       sceneManager.dispose();
       sceneManagerRef.current = null;
+      resultPlatformRef.current = null;
     };
-  }, [customTables]);
+  }, [customTables, outputColumns, outputPosition]);
 
   // Apply visual updates based on current step
   const applyStepVisuals = useCallback(
@@ -181,13 +223,13 @@ export function Sql3DViewer({
       const step = steps[stepIndex];
       if (!step || !sceneManagerRef.current) return;
 
-      // Remove existing arc
+      // 1. Remove existing arc
       if (activeArcGroupRef.current) {
         sceneManagerRef.current.worldGroup.remove(activeArcGroupRef.current);
         activeArcGroupRef.current = null;
       }
 
-      // Reset all row highlights
+      // 2. Reset all source row highlights
       tableObjectsRef.current.forEach((tableObj) => {
         tableObj.rowMeshes.forEach((mesh) => {
           if (mesh.material instanceof THREE.MeshStandardMaterial) {
@@ -198,7 +240,7 @@ export function Sql3DViewer({
         });
       });
 
-      // Highlight active rows
+      // 3. Highlight active rows
       if (step.activeRowIds && step.activeRowIds.length > 0) {
         step.activeRowIds.forEach((rowId) => {
           tableObjectsRef.current.forEach((tableObj) => {
@@ -212,7 +254,7 @@ export function Sql3DViewer({
         });
       }
 
-      // Draw join connection arc
+      // 4. Draw join connection arc if rows matched
       if (step.matchedRowPair) {
         const [leftId, rightId] = step.matchedRowPair;
         let leftPos: THREE.Vector3 | null = null;
@@ -249,8 +291,21 @@ export function Sql3DViewer({
           activeArcGroupRef.current = arc;
         }
       }
+
+      // 5. Update Output Platform result rows snapshot
+      if (resultPlatformRef.current) {
+        resultPlatformRef.current.clearResults();
+        const activeCols = outputColumns || [
+          { name: "employee", type: "VARCHAR" },
+          { name: "manager", type: "VARCHAR" },
+        ];
+        const snapshot = step.resultRowsSnapshot || [];
+        snapshot.forEach((row, rIdx) => {
+          resultPlatformRef.current?.addResultRow(row, activeCols, rIdx);
+        });
+      }
     },
-    [steps]
+    [steps, outputColumns]
   );
 
   // Trigger step update
@@ -291,6 +346,17 @@ export function Sql3DViewer({
     sceneManagerRef.current?.resetCamera();
   };
 
+  const handleFocus = (view: "overview" | "tables" | "output") => {
+    if (!sceneManagerRef.current) return;
+    if (view === "overview") {
+      sceneManagerRef.current.resetCamera();
+    } else if (view === "tables") {
+      sceneManagerRef.current.focusOnPosition(new THREE.Vector3(0, 2, -3), 18);
+    } else if (view === "output") {
+      sceneManagerRef.current.focusOnPosition(new THREE.Vector3(0, 2, 7), 14);
+    }
+  };
+
   return (
     <div className="sql3d-container">
       {/* Header bar */}
@@ -299,13 +365,29 @@ export function Sql3DViewer({
           <span className="sql3d-status-dot" />
           <h3 className="sql3d-title">{title}</h3>
         </div>
-        <button
-          onClick={() => sceneManagerRef.current?.resetCamera()}
-          className="sql3d-btn"
-          title="Reset 3D Camera"
-        >
-          Reset Camera
-        </button>
+        <div className="sql3d-btn-group">
+          <button
+            onClick={() => handleFocus("overview")}
+            className="sql3d-btn"
+            title="Overview Camera View"
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => handleFocus("tables")}
+            className="sql3d-btn"
+            title="Focus Source Tables"
+          >
+            Tables
+          </button>
+          <button
+            onClick={() => handleFocus("output")}
+            className="sql3d-btn"
+            title="Focus Result Output"
+          >
+            Output
+          </button>
+        </div>
       </div>
 
       {/* 3D Canvas Viewport */}

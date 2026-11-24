@@ -1,0 +1,31 @@
+{
+  "name": "sql50-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "generate": "node scripts/generate-data.mjs",
+    "check:concepts": "node scripts/check-concepts.mjs",
+    "prebuild": "npm run generate && npm run check:concepts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "^10.15.0",
+    "eslint-config-next": "16.4.6",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

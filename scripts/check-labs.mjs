@@ -1,5 +1,8 @@
 ﻿import { readFileSync, readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { scaleSeed } from "../src/data/db-labs/scale.ts";
+
+const factor = Number(process.env.LAB_SCALE || 1);
 
 const dir = "src/data/db-labs";
 const problems = JSON.parse(readFileSync("src/data/problems.json", "utf8")).problems;
@@ -15,7 +18,7 @@ for (const f of readdirSync(dir).filter((n) => n.startsWith("labs-"))) {
     const db = new PGlite();
     const t0 = Date.now();
     try {
-      await db.exec(m[3]);
+      await db.exec(scaleSeed(m[3], factor));
       const tabs = await db.query("SELECT tablename FROM pg_tables WHERE schemaname='public'");
       let total = 0;
       for (const t of tabs.rows) total += Number((await db.query(`SELECT count(*) n FROM "${t.tablename}"`)).rows[0].n);
@@ -30,4 +33,5 @@ for (const f of readdirSync(dir).filter((n) => n.startsWith("labs-"))) {
   }
 }
 process.exit(failed ? 1 : 0);
+
 

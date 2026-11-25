@@ -11,6 +11,7 @@ import { useState } from "react";
 import { createLabDb, describeLabDb, runLabQuery } from "@/lib/lab-db";
 import type { QueryResult } from "@/lib/sql-wasm";
 import { LabResults } from "./LabResults";
+import { LAB_SIZES, scaleSeed } from "@/data/db-labs/scale";
 
 interface DbLabPanelProps {
   id: number;
@@ -29,6 +30,7 @@ export function DbLabPanel({ id, issue, seed, solution }: DbLabPanelProps) {
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [ms, setMs] = useState<number | null>(null);
+  const [sizeKey, setSizeKey] = useState("standard");
 
   const create = async () => {
     setStatus("creating");
@@ -36,7 +38,8 @@ export function DbLabPanel({ id, issue, seed, solution }: DbLabPanelProps) {
     setResult(null);
     try {
       const t0 = performance.now();
-      await createLabDb(id, seed);
+      const factor = LAB_SIZES.find((s) => s.key === sizeKey)?.factor ?? 1;
+      await createLabDb(id, scaleSeed(seed, factor));
       setInfo(await describeLabDb(id));
       setMs(Math.round(performance.now() - t0));
       setStatus("ready");
@@ -89,10 +92,23 @@ export function DbLabPanel({ id, issue, seed, solution }: DbLabPanelProps) {
           <details>
             <summary style={{ cursor: "pointer" }}>Show the setup query</summary>
             <pre>
-              <code>{seed.trim()}</code>
+              <code>{scaleSeed(seed, LAB_SIZES.find((s) => s.key === sizeKey)?.factor ?? 1).trim()}</code>
             </pre>
           </details>
-          <p style={{ marginBottom: 8 }}>
+          <p style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <select
+              value={sizeKey}
+              onChange={(e) => setSizeKey(e.target.value)}
+              disabled={status === "creating"}
+              aria-label="Database size"
+              className="sql3d-btn"
+            >
+              {LAB_SIZES.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
             <button className="sql3d-btn sql3d-btn-primary" onClick={create} disabled={status === "creating"}>
               {status === "creating" ? "Creating…" : status === "ready" ? "Reset database" : "Create database"}
             </button>

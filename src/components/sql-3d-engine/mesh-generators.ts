@@ -59,6 +59,30 @@ export function createTextTexture(
   return texture;
 }
 
+/**
+ * Recursively disposes geometries, materials and textures (e.g. sprite label
+ * canvases) of an object tree. Does not remove the object from its parent.
+ */
+export function disposeObject3D(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const anyObj = obj as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry;
+      material?: THREE.Material | THREE.Material[];
+    };
+    anyObj.geometry?.dispose();
+    const mats = Array.isArray(anyObj.material)
+      ? anyObj.material
+      : anyObj.material
+        ? [anyObj.material]
+        : [];
+    mats.forEach((m) => {
+      const map = (m as THREE.Material & { map?: THREE.Texture | null }).map;
+      map?.dispose();
+      m.dispose();
+    });
+  });
+}
+
 export interface TableMeshObject {
   group: THREE.Group;
   rowMeshes: Map<string, THREE.Mesh>;
@@ -201,7 +225,8 @@ export interface ResultPlatformObject {
  */
 export function createResultPlatformMesh(
   columns: ColumnDef[],
-  position: [number, number, number] = [0, 0, 9]
+  position: [number, number, number] = [0, 0, 9],
+  maxRows = 4
 ): ResultPlatformObject {
   const group = new THREE.Group();
   const [posX, posY, posZ] = position;
@@ -209,7 +234,6 @@ export function createResultPlatformMesh(
 
   const numCols = Math.max(columns.length, 2);
   const colWidth = 3.2;
-  const maxRows = 4;
   const rowHeight = 0.9;
   const rowDepth = 1.6;
   const platformWidth = numCols * colWidth + 0.8;
@@ -346,12 +370,7 @@ export function createResultPlatformMesh(
   const clearResults = () => {
     resultRows.forEach((rMesh) => {
       group.remove(rMesh);
-      rMesh.geometry.dispose();
-      if (Array.isArray(rMesh.material)) {
-        rMesh.material.forEach((m) => m.dispose());
-      } else {
-        rMesh.material.dispose();
-      }
+      disposeObject3D(rMesh);
     });
     resultRows.length = 0;
     dropAnims.length = 0;
@@ -382,13 +401,14 @@ export function createJoinArc(
   midPoint.y += Math.max(distance * 0.35, 3.5);
 
   const curve = new THREE.QuadraticBezierCurve3(startPos, midPoint, endPos);
-  const points = curve.getPoints(60);
-  const geo = new THREE.BufferGeometry().setFromPoints(points);
-
-  // Solid thin base line
-  const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
-  const line = new THREE.Line(geo, mat);
-  arcGroup.add(line);
+  // Glowing tube (WebGL ignores LineBasicMaterial.linewidth, so use real geometry)
+  const tubeGeo = new THREE.TubeGeometry(curve, 64, 0.07, 8, false);
+  const tubeMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(color).multiplyScalar(1.6),
+    transparent: true,
+    opacity: 0.9,
+  });
+  arcGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
 
   // 5 particles travelling along the curve at staggered offsets
   const PARTICLE_COUNT = 5;

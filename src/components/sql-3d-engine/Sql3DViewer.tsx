@@ -7,6 +7,7 @@ import {
   createTableMesh,
   createResultPlatformMesh,
   createJoinArc,
+  disposeObject3D,
   TableMeshObject,
   ResultPlatformObject,
   ArcObject,
@@ -161,6 +162,19 @@ export function Sql3DViewer({
   // Dissolve animations: { mesh, elapsed, duration }
   type DissolveAnim = { mesh: THREE.Mesh; elapsed: number; duration: number };
   const dissolveAnims = useRef<DissolveAnim[]>([]);
+  // Smoothly-eased visual targets for source rows (colour, emissive, lift height)
+  type RowTarget = { color: THREE.Color; emissive: THREE.Color; y: number };
+  const rowTargets = useRef<Map<THREE.Mesh, RowTarget>>(new Map());
+  const setRowTarget = useCallback(
+    (mesh: THREE.Mesh, color: number, emissive: number, y: number) => {
+      rowTargets.current.set(mesh, {
+        color: new THREE.Color(color),
+        emissive: new THREE.Color(emissive),
+        y,
+      });
+    },
+    []
+  );
 
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -192,6 +206,15 @@ export function Sql3DViewer({
         if (resultPlatformRef.current) {
           resultPlatformRef.current.updateAnimations(delta);
         }
+        // Ease source rows toward their target colour / glow / lift height
+        const damp = 1 - Math.exp(-12 * delta);
+        rowTargets.current.forEach((target, mesh) => {
+          const mat = mesh.material;
+          if (!(mat instanceof THREE.MeshStandardMaterial)) return;
+          mat.color.lerp(target.color, damp);
+          mat.emissive.lerp(target.emissive, damp);
+          mesh.position.y += (target.y - mesh.position.y) * damp;
+        });
         // Advance dissolve fade-outs for rejected rows
         const anims = dissolveAnims.current;
         for (let i = anims.length - 1; i >= 0; i--) {
@@ -211,6 +234,7 @@ export function Sql3DViewer({
     // Load tables into scene
     const tablesToLoad = customTables || [DEMO_EMPLOYEES_TABLE, DEMO_MANAGERS_TABLE];
     tableObjectsRef.current.clear();
+    rowTargets.current.clear();
 
     tablesToLoad.forEach((tableSchema) => {
       const tableObj = createTableMesh(tableSchema);
@@ -224,47 +248,65 @@ export function Sql3DViewer({
       { name: "manager", type: "VARCHAR" },
     ];
     const outPos = outputPosition || [0, 0, 7];
-    const resultPlatform = createResultPlatformMesh(outCols, outPos);
+    // Size the platform to the largest result snapshot (min 4 rows)
+    const maxResultRows = Math.max(
+      4,
+      ...(customSteps || DEMO_STEPS).map((s) => s.resultRowsSnapshot?.length ?? 0)
+    );
+    const resultPlatform = createResultPlatformMesh(outCols, outPos, maxResultRows);
     sceneManager.worldGroup.add(resultPlatform.group);
     resultPlatformRef.current = resultPlatform;
 
-    // Raycasting for row hover inspection
+    // Raycasting for row hover inspection (candidates cached once per scene)
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    const candidates: {
+      mesh: THREE.Mesh;
+      tableName: string;
+      row: { id: string; values: Record<string, unknown> };
+    }[] = [];
+    tableObjectsRef.current.forEach((tObj) => {
+      tObj.rowMeshes.forEach((mesh, rowId) => {
+        const rowData = tObj.schema.rows.find((r) => r.id === rowId);
+        if (rowData) {
+          candidates.push({ mesh, tableName: tObj.schema.alias || tObj.schema.name, row: rowData });
+        }
+      });
+    });
+    const candidateMeshes = candidates.map((c) => c.mesh);
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current || !sceneManagerRef.current) return;
+    let hoverFrame: number | null = null;
+    let lastHoverId: string | null = null;
+    let pendingEvent: MouseEvent | null = null;
+
+    const processHover = () => {
+      hoverFrame = null;
+      const e = pendingEvent;
+      if (!e || !containerRef.current || !sceneManagerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
       raycaster.setFromCamera(mouse, sceneManagerRef.current.camera);
 
-      // Collect all candidate row meshes
-      const candidateMeshes: { mesh: THREE.Mesh; tableName: string; row: { id: string; values: Record<string, unknown> } }[] = [];
-      tableObjectsRef.current.forEach((tObj) => {
-        tObj.rowMeshes.forEach((mesh, rowId) => {
-          const rowData = tObj.schema.rows.find((r) => r.id === rowId);
-          if (rowData) {
-            candidateMeshes.push({ mesh, tableName: tObj.schema.alias || tObj.schema.name, row: rowData });
-          }
+      const intersects = raycaster.intersectObjects(candidateMeshes, false);
+      const hit = intersects.length > 0 ? candidates.find((c) => c.mesh === intersects[0].object) : undefined;
+      if (hit) {
+        lastHoverId = hit.row.id;
+        setHoveredRowInfo({
+          tableName: hit.tableName,
+          values: hit.row.values,
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
         });
-      });
-
-      const intersects = raycaster.intersectObjects(candidateMeshes.map((c) => c.mesh));
-      if (intersects.length > 0) {
-        const hit = candidateMeshes.find((c) => c.mesh === intersects[0].object);
-        if (hit) {
-          setHoveredRowInfo({
-            tableName: hit.tableName,
-            values: hit.row.values,
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-          });
-          return;
-        }
+      } else if (lastHoverId !== null) {
+        lastHoverId = null;
+        setHoveredRowInfo(null);
       }
-      setHoveredRowInfo(null);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      pendingEvent = e;
+      if (hoverFrame === null) hoverFrame = requestAnimationFrame(processHover);
     };
 
     const containerEl = containerRef.current;
@@ -275,13 +317,15 @@ export function Sql3DViewer({
     window.addEventListener("resize", handleResize);
 
     return () => {
+      if (hoverFrame !== null) cancelAnimationFrame(hoverFrame);
       containerEl.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("resize", handleResize);
+      activeArcRef.current = null;
       sceneManager.dispose();
       sceneManagerRef.current = null;
       resultPlatformRef.current = null;
     };
-  }, [customTables, outputColumns, outputPosition]);
+  }, [customTables, outputColumns, outputPosition, customSteps]);
 
   // Apply visual updates based on current step
   const applyStepVisuals = useCallback(
@@ -292,6 +336,7 @@ export function Sql3DViewer({
       // 1. Remove existing arc
       if (activeArcRef.current) {
         sceneManagerRef.current.worldGroup.remove(activeArcRef.current.group);
+        disposeObject3D(activeArcRef.current.group);
         activeArcRef.current = null;
       }
 
@@ -299,12 +344,10 @@ export function Sql3DViewer({
       tableObjectsRef.current.forEach((tableObj) => {
         tableObj.rowMeshes.forEach((mesh) => {
           if (mesh.material instanceof THREE.MeshStandardMaterial) {
-            mesh.material.color.setHex(0x0f172a);
-            mesh.material.emissive.setHex(0x000000);
             mesh.material.transparent = false;
             mesh.material.opacity = 1;
           }
-          mesh.position.y = 0.85;
+          setRowTarget(mesh, 0x0f172a, 0x000000, 0.85);
         });
       });
       dissolveAnims.current.length = 0;
@@ -317,13 +360,10 @@ export function Sql3DViewer({
             if (rowMesh && rowMesh.material instanceof THREE.MeshStandardMaterial) {
               if (step.passedCondition === false) {
                 // Trigger dissolve fade-out for failed rows
-                rowMesh.material.color.setHex(0x7f1d1d);
-                rowMesh.material.emissive.setHex(0x991b1b);
+                setRowTarget(rowMesh, 0x7f1d1d, 0x991b1b, 0.85);
                 dissolveAnims.current.push({ mesh: rowMesh, elapsed: 0, duration: 0.65 });
               } else {
-                rowMesh.material.color.setHex(0x1e3a8a);
-                rowMesh.material.emissive.setHex(0x1d4ed8);
-                rowMesh.position.y = 1.15; // Lift up row
+                setRowTarget(rowMesh, 0x1e3a8a, 0x1d4ed8, 1.15); // Lift up row
               }
             }
           });
@@ -343,9 +383,7 @@ export function Sql3DViewer({
             lMesh.getWorldPosition(leftPos);
             leftPos.y += 0.5;
             if (lMesh.material instanceof THREE.MeshStandardMaterial) {
-              lMesh.material.color.setHex(0x065f46);
-              lMesh.material.emissive.setHex(0x059669);
-              lMesh.position.y = 1.25;
+              setRowTarget(lMesh, 0x065f46, 0x059669, 1.25);
             }
           }
           const rMesh = tableObj.rowMeshes.get(rightId);
@@ -354,9 +392,7 @@ export function Sql3DViewer({
             rMesh.getWorldPosition(rightPos);
             rightPos.y += 0.5;
             if (rMesh.material instanceof THREE.MeshStandardMaterial) {
-              rMesh.material.color.setHex(0x065f46);
-              rMesh.material.emissive.setHex(0x059669);
-              rMesh.position.y = 1.25;
+              setRowTarget(rMesh, 0x065f46, 0x059669, 1.25);
             }
           }
         });
@@ -381,7 +417,7 @@ export function Sql3DViewer({
         });
       }
     },
-    [steps, outputColumns]
+    [steps, outputColumns, setRowTarget]
   );
 
   // Trigger step update

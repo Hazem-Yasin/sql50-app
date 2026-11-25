@@ -1,5 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { disposeObject3D } from "./mesh-generators";
 
 export interface SceneManagerOptions {
   container: HTMLDivElement;
@@ -11,12 +16,24 @@ export class SceneManager {
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
   public controls: OrbitControls;
+  public composer: EffectComposer;
+  public bloomPass: UnrealBloomPass;
   
   private container: HTMLDivElement;
   private animationFrameId: number | null = null;
   private clock: THREE.Clock;
   private onAnimateCallback?: (delta: number) => void;
   private isDisposed = false;
+  private isVisible = true;
+  private cameraTween: {
+    fromPos: THREE.Vector3;
+    toPos: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    toTarget: THREE.Vector3;
+    elapsed: number;
+    duration: number;
+  } | null = null;
+  private visibilityObserver: IntersectionObserver | null = null;
 
   // Root group for all dynamic SQL entities (tables, rows, join lines, output platform)
   public worldGroup: THREE.Group;
@@ -44,6 +61,20 @@ export class SceneManager {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
+
+    // 3b. Post-processing: MSAA target keeps edges smooth, bloom adds real glow
+    const pixelRatio = this.renderer.getPixelRatio();
+    const target = new THREE.WebGLRenderTarget(width * pixelRatio, height * pixelRatio, {
+      type: THREE.HalfFloatType,
+      samples: 4,
+    });
+    this.composer = new EffectComposer(this.renderer, target);
+    this.composer.setPixelRatio(pixelRatio);
+    this.composer.setSize(width, height);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.55, 0.6, 0.85);
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
 
     // 4. Orbit Controls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -123,33 +154,67 @@ export class SceneManager {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    this.composer.setSize(width, height);
   }
 
   public resetCamera(): void {
-    this.camera.position.set(0, 18, 28);
-    this.controls.target.set(0, 2, 0);
-    this.controls.update();
+    this.tweenCamera(new THREE.Vector3(0, 18, 28), new THREE.Vector3(0, 2, 0));
   }
 
   public focusOnPosition(target: THREE.Vector3, distance = 16): void {
-    this.controls.target.copy(target);
-    this.camera.position.set(target.x, target.y + distance * 0.6, target.z + distance);
-    this.controls.update();
+    this.tweenCamera(
+      new THREE.Vector3(target.x, target.y + distance * 0.6, target.z + distance),
+      target.clone()
+    );
+  }
+
+  /** Smoothly moves the camera and orbit target (ease-in-out, ~0.8s). */
+  private tweenCamera(toPos: THREE.Vector3, toTarget: THREE.Vector3, duration = 0.8): void {
+    this.cameraTween = {
+      fromPos: this.camera.position.clone(),
+      toPos,
+      fromTarget: this.controls.target.clone(),
+      toTarget,
+      elapsed: 0,
+      duration,
+    };
+  }
+
+  private updateCameraTween(delta: number): void {
+    const tw = this.cameraTween;
+    if (!tw) return;
+    tw.elapsed += delta;
+    const t = Math.min(tw.elapsed / tw.duration, 1);
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    this.camera.position.lerpVectors(tw.fromPos, tw.toPos, e);
+    this.controls.target.lerpVectors(tw.fromTarget, tw.toTarget, e);
+    if (t >= 1) this.cameraTween = null;
   }
 
   private start(): void {
+    // Pause the render loop while the canvas is scrolled off-screen
+    if (typeof IntersectionObserver !== "undefined") {
+      this.visibilityObserver = new IntersectionObserver((entries) => {
+        this.isVisible = entries.some((e) => e.isIntersecting);
+        if (this.isVisible) this.clock.getDelta(); // discard the paused gap
+      });
+      this.visibilityObserver.observe(this.container);
+    }
+
     const loop = () => {
       if (this.isDisposed) return;
       this.animationFrameId = requestAnimationFrame(loop);
-      
-      const delta = this.clock.getDelta();
+      if (!this.isVisible) return;
+
+      const delta = Math.min(this.clock.getDelta(), 0.1);
+      this.updateCameraTween(delta);
       this.controls.update();
       
       if (this.onAnimateCallback) {
         this.onAnimateCallback(delta);
       }
 
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
     };
     loop();
   }
@@ -161,22 +226,17 @@ export class SceneManager {
     }
     
     this.controls.dispose();
+    this.composer.dispose();
     this.renderer.dispose();
 
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
     }
 
-    // Traverse and dispose materials and geometries in scene
-    this.scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose();
-        if (Array.isArray(obj.material)) {
-          obj.material.forEach((m) => m.dispose());
-        } else if (obj.material) {
-          obj.material.dispose();
-        }
-      }
-    });
+    this.visibilityObserver?.disconnect();
+    this.visibilityObserver = null;
+
+    // Dispose geometries, materials and label textures (meshes, sprites, lines)
+    disposeObject3D(this.scene);
   }
 }

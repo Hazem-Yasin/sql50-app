@@ -9,6 +9,7 @@ import {
   ConceptScenario,
   SAMPLE_DATABASE,
 } from "@/components/sql-3d-engine";
+import { DotsViewer } from "@/components/sql-3d-engine/DotsViewer";
 import { runQuery, QueryResult } from "@/lib/sql-wasm";
 
 interface ScenarioOption {
@@ -95,6 +96,7 @@ export default function PlaygroundPage() {
   const [activeScenario, setActiveScenario] = useState<ConceptScenario | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [wasmState, setWasmState] = useState<WasmState>({ status: "idle", result: null });
+  const [viewMode, setViewMode] = useState<"cards" | "dots">("cards");
 
   const scenario = activeScenario || CONCEPT_SCENARIOS[selectedPresetKey] || CONCEPT_SCENARIOS["self-join"];
 
@@ -267,14 +269,40 @@ export default function PlaygroundPage() {
       </div>
 
       {/* 3D SQL Viewer Viewport */}
-      <Sql3DViewer
-        key={activeScenario ? `custom_${customSql}` : selectedPresetKey}
-        title={scenario.title}
-        customTables={scenario.tables}
-        outputColumns={scenario.outputColumns}
-        outputPosition={scenario.outputPosition}
-        customSteps={scenario.steps}
-      />
+      <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+        {(["cards", "dots"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setViewMode(m)}
+            style={{
+              padding: "6px 14px",
+              borderRadius: "6px",
+              fontSize: "0.82rem",
+              cursor: "pointer",
+              border: viewMode === m ? "1px solid #38bdf8" : "1px solid var(--border)",
+              background: viewMode === m ? "rgba(56, 189, 248, 0.15)" : "var(--surface)",
+              color: viewMode === m ? "#38bdf8" : "var(--text)",
+            }}
+          >
+            {m === "cards" ? "Cards view" : "Dots view (prototype)"}
+          </button>
+        ))}
+      </div>
+      {viewMode === "cards" ? (
+        <Sql3DViewer
+          key={activeScenario ? `custom_${customSql}` : selectedPresetKey}
+          title={scenario.title}
+          customTables={scenario.tables}
+          outputColumns={scenario.outputColumns}
+          outputPosition={scenario.outputPosition}
+          customSteps={scenario.steps}
+        />
+      ) : (
+        <DotsViewer
+          key={activeScenario ? `dots_${customSql}` : `dots_${selectedPresetKey}`}
+          scenario={scenario}
+        />
+      )}
 
       {/* Real WASM SQL Results Panel */}
       {wasmState.status !== "idle" && (

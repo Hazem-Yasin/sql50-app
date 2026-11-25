@@ -5,6 +5,8 @@ import { concepts } from "@/data/concepts";
 import { getProblem, leetcodeUrl, problems } from "@/data/problems";
 import { PROBLEM_SCENARIOS } from "@/data/problem-scenarios";
 import { ProblemViewer } from "@/components/ProblemViewer";
+import { DbLabPanel } from "@/components/DbLabPanel";
+import { getLab } from "@/data/db-labs";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -29,6 +31,7 @@ export default async function ProblemPage({ params }: PageProps) {
   const problem = getProblem(Number(id));
   if (!problem) notFound();
 
+  const lab = getLab(problem.id);
   const needed = concepts.filter((c) => c.problems.includes(problem.id));
   const index = problems.findIndex((p) => p.id === problem.id);
   const previous = problems[index - 1];
@@ -70,6 +73,13 @@ export default async function ProblemPage({ params }: PageProps) {
             Step through how this query executes — tables, joins, filters, and results rendered in real-time 3D.
           </p>
           <ProblemViewer scenario={PROBLEM_SCENARIOS[problem.id]} />
+        </>
+      )}
+
+      {lab && (
+        <>
+          <h2>Practice database</h2>
+          <DbLabPanel id={lab.id} issue={lab.issue} seed={lab.seed} solution={problem.postgresql} />
         </>
       )}
 

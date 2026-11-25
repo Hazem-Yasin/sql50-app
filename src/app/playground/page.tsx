@@ -10,6 +10,7 @@ import {
   SAMPLE_DATABASE,
 } from "@/components/sql-3d-engine";
 import { DotsViewer } from "@/components/sql-3d-engine/DotsViewer";
+import { ErdViewer } from "@/components/sql-3d-engine/ErdViewer";
 import { runQuery, QueryResult } from "@/lib/sql-wasm";
 
 interface ScenarioOption {
@@ -96,7 +97,7 @@ export default function PlaygroundPage() {
   const [activeScenario, setActiveScenario] = useState<ConceptScenario | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [wasmState, setWasmState] = useState<WasmState>({ status: "idle", result: null });
-  const [viewMode, setViewMode] = useState<"cards" | "dots">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "dots" | "erd">("cards");
 
   const scenario = activeScenario || CONCEPT_SCENARIOS[selectedPresetKey] || CONCEPT_SCENARIOS["self-join"];
 
@@ -270,7 +271,7 @@ export default function PlaygroundPage() {
 
       {/* 3D SQL Viewer Viewport */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-        {(["cards", "dots"] as const).map((m) => (
+        {(["cards", "dots", "erd"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setViewMode(m)}
@@ -284,7 +285,7 @@ export default function PlaygroundPage() {
               color: viewMode === m ? "#38bdf8" : "var(--text)",
             }}
           >
-            {m === "cards" ? "Cards view" : "Dots view (prototype)"}
+            {m === "cards" ? "Cards view" : m === "dots" ? "Dots view (prototype)" : "ERD view (2D)"}
           </button>
         ))}
       </div>
@@ -297,9 +298,14 @@ export default function PlaygroundPage() {
           outputPosition={scenario.outputPosition}
           customSteps={scenario.steps}
         />
-      ) : (
+      ) : viewMode === "dots" ? (
         <DotsViewer
           key={activeScenario ? `dots_${customSql}` : `dots_${selectedPresetKey}`}
+          scenario={scenario}
+        />
+      ) : (
+        <ErdViewer
+          key={activeScenario ? `erd_${customSql}` : `erd_${selectedPresetKey}`}
           scenario={scenario}
         />
       )}

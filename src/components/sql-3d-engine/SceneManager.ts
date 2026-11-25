@@ -25,6 +25,14 @@ export class SceneManager {
   private onAnimateCallback?: (delta: number) => void;
   private isDisposed = false;
   private isVisible = true;
+  /** True when the user prefers reduced motion: no camera glides, drift or sparks. */
+  public reducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private gridMaterials: THREE.Material[] = [];
+  private stars: THREE.Points | null = null;
+  private elapsed = 0;
   private cameraTween: {
     fromPos: THREE.Vector3;
     toPos: THREE.Vector3;
@@ -131,10 +139,40 @@ export class SceneManager {
   }
 
   private initEnvironment(): void {
-    // Studio Datum Floor Grid
-    const gridHelper = new THREE.GridHelper(60, 60, 0x334155, 0x1e293b);
+    // Studio Datum Floor Grid (pulsed each frame via gridMaterials)
+    const gridHelper = new THREE.GridHelper(60, 60, 0x38bdf8, 0x1e293b);
     gridHelper.position.y = 0;
+    const gm = gridHelper.material;
+    this.gridMaterials = Array.isArray(gm) ? gm : [gm];
+    this.gridMaterials.forEach((m) => {
+      m.transparent = true;
+      m.opacity = 0.5;
+    });
     this.scene.add(gridHelper);
+
+    // Starfield backdrop
+    const starCount = 700;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 70 + Math.random() * 60;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 0.9 + 0.05); // upper hemisphere bias
+      starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      starPos[i * 3 + 1] = r * Math.cos(phi) + 5;
+      starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0x93c5fd,
+      size: 0.45,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+      fog: false,
+    });
+    this.stars = new THREE.Points(starGeo, starMat);
+    this.scene.add(this.stars);
 
     // Radial floor plane receiving soft shadows
     const shadowPlaneGeo = new THREE.PlaneGeometry(60, 60);
@@ -157,6 +195,18 @@ export class SceneManager {
     this.composer.setSize(width, height);
   }
 
+  /** Renders one frame and returns it as a PNG data URL (for screenshots). */
+  public captureImage(): string {
+    this.composer.render();
+    return this.renderer.domElement.toDataURL("image/png");
+  }
+
+  /** Slow orbital drift used by Director mode when idle. */
+  public setAutoRotate(enabled: boolean): void {
+    this.controls.autoRotate = enabled;
+    this.controls.autoRotateSpeed = 0.6;
+  }
+
   public resetCamera(): void {
     this.tweenCamera(new THREE.Vector3(0, 18, 28), new THREE.Vector3(0, 2, 0));
   }
@@ -170,6 +220,7 @@ export class SceneManager {
 
   /** Smoothly moves the camera and orbit target (ease-in-out, ~0.8s). */
   private tweenCamera(toPos: THREE.Vector3, toTarget: THREE.Vector3, duration = 0.8): void {
+    if (this.reducedMotion) duration = 0.01;
     this.cameraTween = {
       fromPos: this.camera.position.clone(),
       toPos,
@@ -208,6 +259,12 @@ export class SceneManager {
 
       const delta = Math.min(this.clock.getDelta(), 0.1);
       this.updateCameraTween(delta);
+
+      // Ambient motion: slow star drift and a breathing grid
+      this.elapsed += delta;
+      if (this.stars && !this.reducedMotion) this.stars.rotation.y += delta * 0.01;
+      const pulse = 0.4 + 0.15 * Math.sin(this.elapsed * 1.2);
+      this.gridMaterials.forEach((m) => (m.opacity = pulse));
       this.controls.update();
       
       if (this.onAnimateCallback) {

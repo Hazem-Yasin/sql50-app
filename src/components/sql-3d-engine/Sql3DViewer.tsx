@@ -3,6 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { SceneManager } from "./SceneManager";
+import { ParticleSystem, ScannerBeam } from "./effects";
+import { playSfx } from "./sounds";
 import {
   createTableMesh,
   createResultPlatformMesh,
@@ -162,6 +164,9 @@ export function Sql3DViewer({
   // Dissolve animations: { mesh, elapsed, duration }
   type DissolveAnim = { mesh: THREE.Mesh; elapsed: number; duration: number };
   const dissolveAnims = useRef<DissolveAnim[]>([]);
+  const particlesRef = useRef<ParticleSystem | null>(null);
+  const beamRef = useRef<ScannerBeam | null>(null);
+  const prevResultIdsRef = useRef<Set<string>>(new Set());
   // Smoothly-eased visual targets for source rows (colour, emissive, lift height)
   type RowTarget = { color: THREE.Color; emissive: THREE.Color; y: number };
   const rowTargets = useRef<Map<THREE.Mesh, RowTarget>>(new Map());
@@ -179,6 +184,10 @@ export function Sql3DViewer({
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [directorMode, setDirectorMode] = useState<boolean>(false);
+  const directorRef = useRef<boolean>(false);
+  const [soundOn, setSoundOn] = useState<boolean>(false);
+  const soundRef = useRef<boolean>(false);
   const [hoveredRowInfo, setHoveredRowInfo] = useState<{
     tableName: string;
     values: Record<string, unknown>;
@@ -206,6 +215,9 @@ export function Sql3DViewer({
         if (resultPlatformRef.current) {
           resultPlatformRef.current.updateAnimations(delta);
         }
+        // Advance particle sparks and the scanner beam
+        particlesRef.current?.update(delta);
+        beamRef.current?.update(delta);
         // Ease source rows toward their target colour / glow / lift height
         const damp = 1 - Math.exp(-12 * delta);
         rowTargets.current.forEach((target, mesh) => {
@@ -231,10 +243,20 @@ export function Sql3DViewer({
     });
     sceneManagerRef.current = sceneManager;
 
+    // Visual effects: particles + scanner beam
+    const particles = new ParticleSystem();
+    particles.disabled = sceneManager.reducedMotion;
+    const beam = new ScannerBeam();
+    sceneManager.scene.add(particles.points);
+    sceneManager.scene.add(beam.mesh);
+    particlesRef.current = particles;
+    beamRef.current = beam;
+
     // Load tables into scene
     const tablesToLoad = customTables || [DEMO_EMPLOYEES_TABLE, DEMO_MANAGERS_TABLE];
     tableObjectsRef.current.clear();
     rowTargets.current.clear();
+    prevResultIdsRef.current = new Set();
 
     tablesToLoad.forEach((tableSchema) => {
       const tableObj = createTableMesh(tableSchema);
@@ -312,6 +334,54 @@ export function Sql3DViewer({
     const containerEl = containerRef.current;
     containerEl.addEventListener("mousemove", handleMouseMove);
 
+    // Click-to-inspect: pin a row and light up its FK/PK relatives
+    let downX = 0;
+    let downY = 0;
+    const handleDown = (e: MouseEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    };
+    const handleClick = (e: MouseEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
+      if (!sceneManagerRef.current) return;
+      const rect = containerEl.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, sceneManagerRef.current.camera);
+      const hits = raycaster.intersectObjects(candidateMeshes, false);
+      const hit = hits.length > 0 ? candidates.find((c) => c.mesh === hits[0].object) : undefined;
+
+      // Restore every source row to its base look first
+      tableObjectsRef.current.forEach((t) =>
+        t.rowMeshes.forEach((m) => setRowTarget(m, 0x0f172a, 0x000000, 0.85))
+      );
+      if (!hit) return;
+
+      setRowTarget(hit.mesh, 0x5b21b6, 0x7c3aed, 1.3);
+      const hitTable = [...tableObjectsRef.current.values()].find((t) => t.rowMeshes.get(hit.row.id) === hit.mesh);
+      if (!hitTable) return;
+      const keyCols = (t: TableMeshObject, kind: "isPrimary" | "isForeign") =>
+        t.schema.columns.filter((c) => c[kind]).map((c) => c.name);
+
+      tableObjectsRef.current.forEach((other) => {
+        other.schema.rows.forEach((r) => {
+          if (r.id === hit.row.id) return;
+          const relatedViaFk = keyCols(hitTable, "isForeign").some((fk) => {
+            const v = hit.row.values[fk];
+            return v !== null && v !== undefined && keyCols(other, "isPrimary").some((pk) => r.values[pk] === v);
+          });
+          const relatedViaPk = keyCols(hitTable, "isPrimary").some((pk) => {
+            const v = hit.row.values[pk];
+            return v !== null && v !== undefined && keyCols(other, "isForeign").some((fk) => r.values[fk] === v);
+          });
+          const mesh = other.rowMeshes.get(r.id);
+          if (mesh && (relatedViaFk || relatedViaPk)) setRowTarget(mesh, 0x92400e, 0xf59e0b, 1.2);
+        });
+      });
+    };
+    containerEl.addEventListener("mousedown", handleDown);
+    containerEl.addEventListener("click", handleClick);
+
     // Resize handler
     const handleResize = () => sceneManager.resize();
     window.addEventListener("resize", handleResize);
@@ -319,13 +389,17 @@ export function Sql3DViewer({
     return () => {
       if (hoverFrame !== null) cancelAnimationFrame(hoverFrame);
       containerEl.removeEventListener("mousemove", handleMouseMove);
+      containerEl.removeEventListener("mousedown", handleDown);
+      containerEl.removeEventListener("click", handleClick);
       window.removeEventListener("resize", handleResize);
       activeArcRef.current = null;
+      particlesRef.current = null;
+      beamRef.current = null;
       sceneManager.dispose();
       sceneManagerRef.current = null;
       resultPlatformRef.current = null;
     };
-  }, [customTables, outputColumns, outputPosition, customSteps]);
+  }, [customTables, outputColumns, outputPosition, customSteps, setRowTarget]);
 
   // Apply visual updates based on current step
   const applyStepVisuals = useCallback(
@@ -362,8 +436,15 @@ export function Sql3DViewer({
                 // Trigger dissolve fade-out for failed rows
                 setRowTarget(rowMesh, 0x7f1d1d, 0x991b1b, 0.85);
                 dissolveAnims.current.push({ mesh: rowMesh, elapsed: 0, duration: 0.65 });
+                const rejectPos = new THREE.Vector3();
+                rowMesh.getWorldPosition(rejectPos);
+                particlesRef.current?.burst(rejectPos, 0xef4444, 36, 4.5, 3);
               } else {
                 setRowTarget(rowMesh, 0x1e3a8a, 0x1d4ed8, 1.15); // Lift up row
+                if (step.type === "SCAN_ROW" || step.type === "EVALUATE_PREDICATE") {
+                  const box = new THREE.Box3().setFromObject(rowMesh);
+                  beamRef.current?.sweep(rowMesh, box.max.x - box.min.x);
+                }
               }
             }
           });
@@ -401,6 +482,9 @@ export function Sql3DViewer({
           const arcObj = createJoinArc(leftPos, rightPos, 0x10b981);
           sceneManagerRef.current.worldGroup.add(arcObj.group);
           activeArcRef.current = arcObj;
+          // Spark bursts at both ends of the match
+          particlesRef.current?.burst(leftPos, 0x34d399, 30, 4, 1.5);
+          particlesRef.current?.burst(rightPos, 0x34d399, 30, 4, 1.5);
         }
       }
 
@@ -412,9 +496,80 @@ export function Sql3DViewer({
           { name: "manager", type: "VARCHAR" },
         ];
         const snapshot = step.resultRowsSnapshot || [];
+        const seen = prevResultIdsRef.current;
+        // Rows already shown last step stay put; new rows fly in from the match
+        let origin: THREE.Vector3 | undefined;
+        if (step.matchedRowPair) {
+          const [leftId] = step.matchedRowPair;
+          tableObjectsRef.current.forEach((tableObj) => {
+            const m = tableObj.rowMeshes.get(leftId);
+            if (m) {
+              origin = new THREE.Vector3();
+              m.getWorldPosition(origin);
+              origin.y += 1;
+            }
+          });
+        }
+        const nextIds = new Set<string>();
         snapshot.forEach((row, rIdx) => {
-          resultPlatformRef.current?.addResultRow(row, activeCols, rIdx);
+          nextIds.add(row.id);
+          const isNew = !seen.has(row.id);
+          const mesh = resultPlatformRef.current?.addResultRow(
+            row,
+            activeCols,
+            rIdx,
+            isNew ? origin : undefined,
+            !isNew
+          );
+          if (mesh && isNew && resultPlatformRef.current) {
+            const burstPos = new THREE.Vector3();
+            const platform = resultPlatformRef.current.group;
+            platform.localToWorld(burstPos.set(0, 1.2, mesh.position.z));
+            particlesRef.current?.burst(burstPos, 0x6ee7b7, 26, 3.5, 2);
+          }
         });
+        prevResultIdsRef.current = nextIds;
+      }
+
+      // 6. Sound effects (opt-in)
+      if (soundRef.current) {
+        if (step.passedCondition === false) playSfx("reject");
+        else if (step.matchedRowPair) playSfx("match");
+        else if (step.type === "SCAN_ROW" || step.type === "EVALUATE_PREDICATE") playSfx("scan");
+        else if (step.type === "COMPLETE" || step.type === "EMIT_RESULT") playSfx("result");
+      }
+
+      // 7. Director mode: cinematic camera follows the action
+      const sm = sceneManagerRef.current;
+      if (directorRef.current && sm) {
+        const focus = new THREE.Vector3();
+        let dist = 22;
+        if (step.matchedRowPair) {
+          const pts: THREE.Vector3[] = [];
+          step.matchedRowPair.forEach((id) =>
+            tableObjectsRef.current.forEach((t) => {
+              const m = t.rowMeshes.get(id);
+              if (m) pts.push(m.getWorldPosition(new THREE.Vector3()));
+            })
+          );
+          if (pts.length === 2) {
+            focus.addVectors(pts[0], pts[1]).multiplyScalar(0.5);
+            dist = Math.max(16, pts[0].distanceTo(pts[1]) * 1.1);
+          }
+        } else if (step.activeRowIds && step.activeRowIds.length > 0) {
+          tableObjectsRef.current.forEach((t) => {
+            const m = t.rowMeshes.get(step.activeRowIds![0]);
+            if (m) m.getWorldPosition(focus);
+          });
+          dist = 15;
+        } else if (step.type === "COMPLETE" || step.type === "EMIT_RESULT") {
+          focus.set(0, 2, 7);
+          dist = 20;
+        } else {
+          focus.set(0, 2, -2);
+          dist = 26;
+        }
+        sm.focusOnPosition(focus, dist);
       }
     },
     [steps, outputColumns, setRowTarget]
@@ -500,6 +655,46 @@ export function Sql3DViewer({
           >
             Output
           </button>
+          <button
+            onClick={() => {
+              const next = !directorMode;
+              setDirectorMode(next);
+              directorRef.current = next;
+              sceneManagerRef.current?.setAutoRotate(false);
+              if (next) applyStepVisuals(currentStepIdx);
+              else sceneManagerRef.current?.resetCamera();
+            }}
+            className={`sql3d-btn ${directorMode ? "sql3d-btn-primary" : ""}`}
+            title="Cinematic camera follows the action"
+          >
+            🎬 Director
+          </button>
+          <button
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              soundRef.current = next;
+              if (next) playSfx("result");
+            }}
+            className={`sql3d-btn ${soundOn ? "sql3d-btn-primary" : ""}`}
+            title="Toggle sound effects"
+          >
+            {soundOn ? "🔊" : "🔇"}
+          </button>
+          <button
+            onClick={() => {
+              const url = sceneManagerRef.current?.captureImage();
+              if (!url) return;
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `sql3d-step-${currentStepIdx + 1}.png`;
+              a.click();
+            }}
+            className="sql3d-btn"
+            title="Save a screenshot of the current step"
+          >
+            📷
+          </button>
         </div>
       </div>
 
@@ -509,7 +704,7 @@ export function Sql3DViewer({
 
         {/* Viewport instruction badge */}
         <div className="sql3d-badge-instructions">
-          Hover: Inspect · Left Drag: Rotate · Right Drag: Pan · Scroll: Zoom
+          Hover: Inspect · Click: Pin &amp; Show Relations · Left Drag: Rotate · Right Drag: Pan · Scroll: Zoom
         </div>
 
         {/* Step indicator pill */}
@@ -558,6 +753,37 @@ export function Sql3DViewer({
           )}
         </div>
         <p className="sql3d-narration-text">{currentStep.narration}</p>
+      </div>
+
+      {/* Timeline scrubber */}
+      <div className="sql3d-timeline">
+        <input
+          type="range"
+          min={0}
+          max={steps.length - 1}
+          step={1}
+          value={currentStepIdx}
+          onChange={(e) => {
+            setIsPlaying(false);
+            setCurrentStepIdx(Number(e.target.value));
+          }}
+          className="sql3d-scrubber"
+          aria-label="Execution timeline"
+        />
+        <div className="sql3d-timeline-ticks">
+          {steps.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                setIsPlaying(false);
+                setCurrentStepIdx(i);
+              }}
+              className={`sql3d-tick sql3d-tick-${s.type.toLowerCase()} ${i === currentStepIdx ? "active" : ""} ${i < currentStepIdx ? "done" : ""}`}
+              title={s.title}
+              aria-label={`Go to step ${i + 1}: ${s.title}`}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Playback & Step Controls Bar */}

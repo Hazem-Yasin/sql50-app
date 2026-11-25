@@ -213,7 +213,13 @@ export function createTableMesh(schema: TableSchema): TableMeshObject {
 export interface ResultPlatformObject {
   group: THREE.Group;
   /** Adds a row that drops in from above with bounce-ease physics. */
-  addResultRow: (row: TableRow, columns: ColumnDef[], rowIndex: number) => THREE.Mesh;
+  addResultRow: (
+    row: TableRow,
+    columns: ColumnDef[],
+    rowIndex: number,
+    originWorld?: THREE.Vector3,
+    instant?: boolean
+  ) => THREE.Mesh;
   clearResults: () => void;
   resultRows: THREE.Mesh[];
   /** Call each frame to advance drop animations. */
@@ -295,11 +301,25 @@ export function createResultPlatformMesh(
 
   const resultRows: THREE.Mesh[] = [];
 
-  // Drop animations: { mesh, targetY, elapsed, duration }
+  // Drop animations (bounce from above) and flight animations (arc from a source row)
   type DropAnim = { mesh: THREE.Mesh; targetY: number; elapsed: number; duration: number };
+  type FlyAnim = {
+    mesh: THREE.Mesh;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    elapsed: number;
+    duration: number;
+  };
   const dropAnims: DropAnim[] = [];
+  const flyAnims: FlyAnim[] = [];
 
-  const addResultRow = (row: TableRow, cols: ColumnDef[], rIdx: number): THREE.Mesh => {
+  const addResultRow = (
+    row: TableRow,
+    cols: ColumnDef[],
+    rIdx: number,
+    originWorld?: THREE.Vector3,
+    instant = false
+  ): THREE.Mesh => {
     const targetY = 0.4 + rowHeight / 2;
     const rowZ = -platformDepth / 2 + 2.0 + rIdx * (rowDepth + 0.3);
     const rowGeo = new THREE.BoxGeometry(platformWidth - 0.6, rowHeight, rowDepth);
@@ -341,8 +361,18 @@ export function createResultPlatformMesh(
     group.add(rowMesh);
     resultRows.push(rowMesh);
 
-    // Register drop animation (bounce-ease, 0.55s)
-    dropAnims.push({ mesh: rowMesh, targetY, elapsed: 0, duration: 0.55 });
+    // Flight from a source row (local space), or a bounce drop from above
+    if (instant) {
+      rowMesh.position.set(0, targetY, rowZ);
+    } else if (originWorld) {
+      const from = group.worldToLocal(originWorld.clone());
+      const to = new THREE.Vector3(0, targetY, rowZ);
+      rowMesh.position.copy(from);
+      rowMesh.scale.setScalar(0.4);
+      flyAnims.push({ mesh: rowMesh, from, to, elapsed: 0, duration: 0.9 });
+    } else {
+      dropAnims.push({ mesh: rowMesh, targetY, elapsed: 0, duration: 0.55 });
+    }
 
     return rowMesh;
   };
@@ -357,6 +387,21 @@ export function createResultPlatformMesh(
   }
 
   const updateAnimations = (delta: number) => {
+    for (let i = flyAnims.length - 1; i >= 0; i--) {
+      const a = flyAnims[i];
+      a.elapsed += delta;
+      const t = Math.min(a.elapsed / a.duration, 1);
+      const e = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      a.mesh.position.lerpVectors(a.from, a.to, e);
+      a.mesh.position.y += Math.sin(t * Math.PI) * 4; // arc apex
+      a.mesh.rotation.y = (1 - e) * Math.PI * 2; // spin while flying
+      a.mesh.scale.setScalar(0.4 + 0.6 * e);
+      if (t >= 1) {
+        a.mesh.rotation.y = 0;
+        a.mesh.scale.setScalar(1);
+        flyAnims.splice(i, 1);
+      }
+    }
     for (let i = dropAnims.length - 1; i >= 0; i--) {
       const anim = dropAnims[i];
       anim.elapsed += delta;
@@ -374,6 +419,7 @@ export function createResultPlatformMesh(
     });
     resultRows.length = 0;
     dropAnims.length = 0;
+    flyAnims.length = 0;
   };
 
   return { group, addResultRow, clearResults, resultRows, updateAnimations };
